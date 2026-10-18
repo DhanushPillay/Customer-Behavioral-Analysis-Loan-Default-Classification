@@ -84,7 +84,7 @@ The project reports Accuracy, Precision, Recall, F1-score, Average Precision, an
 
 The selection result is tuned baseline Gradient Boosting with F1 **0.571 +/- 0.120**, Average Precision **0.654**, and ROC-AUC **0.864**. Tuned baseline Random Forest records F1 **0.556 +/- 0.112**, Average Precision **0.661**, and ROC-AUC **0.877**. The full comparison table appears in the classification section below.
 
-## 2. Problem Statement
+## 2. Problem Statement and Objectives
 
 Loan defaults create direct financial losses and increase the cost of credit operations. A bank needs an evidence-based way to identify applications that deserve additional review while avoiding unnecessary rejection of reliable customers.
 

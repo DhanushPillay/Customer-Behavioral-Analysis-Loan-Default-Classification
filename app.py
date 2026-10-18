@@ -46,6 +46,11 @@ def load_csv(name: str) -> pd.DataFrame:
     return pd.read_csv(OUTPUTS / name)
 
 
+@st.cache_data
+def load_features() -> pd.DataFrame:
+    return pd.read_csv(ROOT / "data" / "loan_features.csv")
+
+
 def load_optional_csv(name: str) -> pd.DataFrame | None:
     path = OUTPUTS / name
     return pd.read_csv(path) if path.exists() else None
@@ -155,6 +160,65 @@ def comparison_page() -> None:
     for card, (_, segment) in zip(segment_cards, segments.iterrows()):
         card.metric(f"Segment {int(segment['segment'])} default rate", f"{segment['default_rate']:.1%}")
         card.caption(f"{int(segment['size'])} loans | {segment['n_txn']:.0f} average transactions")
+
+    st.subheader("Portfolio risk lens")
+    st.caption("Adjust the review cutoffs to see how balance capacity and loan size divide the portfolio. This is a screening view, not a lending rule.")
+    features = load_features()
+    balance_median = round(float(features["balance_at_loan"].median()) / 1000) * 1000.0
+    amount_median = round(float(features["amount"].median()) / 1000) * 1000.0
+    balance_min = round(float(features["balance_at_loan"].quantile(0.10)) / 1000) * 1000.0
+    balance_max = round(float(features["balance_at_loan"].quantile(0.90)) / 1000) * 1000.0
+    amount_min = round(float(features["amount"].quantile(0.10)) / 1000) * 1000.0
+    amount_max = round(float(features["amount"].quantile(0.90)) / 1000) * 1000.0
+    risk_controls = st.columns(2)
+    balance_cutoff = risk_controls[0].slider(
+        "Balance-at-loan cutoff",
+        min_value=balance_min,
+        max_value=balance_max,
+        value=balance_median,
+        step=1000.0,
+    )
+    amount_cutoff = risk_controls[1].slider(
+        "Loan amount cutoff",
+        min_value=amount_min,
+        max_value=amount_max,
+        value=amount_median,
+        step=1000.0,
+    )
+    features = features.copy()
+    features["risk_quadrant"] = (
+        features["balance_at_loan"].ge(balance_cutoff).map({True: "Higher balance", False: "Lower balance"})
+        + " / "
+        + features["amount"].ge(amount_cutoff).map({True: "Higher loan", False: "Lower loan"})
+    )
+    risk_table = (
+        features.groupby("risk_quadrant", as_index=False)
+        .agg(loans=("target", "size"), defaults=("target", "sum"), default_rate=("target", "mean"))
+        .sort_values("default_rate", ascending=False)
+    )
+    risk_left, risk_right = st.columns([1.1, 1])
+    with risk_left:
+        st.dataframe(
+            risk_table.style.format({"default_rate": "{:.1%}"}),
+            use_container_width=True,
+            hide_index=True,
+        )
+    with risk_right:
+        fig, ax = plt.subplots(figsize=(6, 4))
+        colors = ["#ff595e" if rate == risk_table["default_rate"].max() else "#3a86ff" for rate in risk_table["default_rate"]]
+        ax.barh(risk_table["risk_quadrant"], risk_table["default_rate"], color=colors)
+        ax.set_xlabel("Default rate")
+        ax.xaxis.set_major_formatter(plt.FuncFormatter(lambda value, _: f"{value:.0%}"))
+        ax.grid(axis="x", alpha=0.2)
+        st.pyplot(fig, use_container_width=True)
+        plt.close(fig)
+    highest_risk = risk_table.iloc[0]
+    st.markdown(
+        f'<div class="signal"><b>Highest observed quadrant:</b> {highest_risk["risk_quadrant"]} '
+        f'with {highest_risk["default_rate"]:.1%} default rate across {int(highest_risk["loans"])} loans. '
+        "Use this to prioritize investigation, not to automate approval decisions.</div>",
+        unsafe_allow_html=True,
+    )
 
 
 def best_model_page() -> None:
