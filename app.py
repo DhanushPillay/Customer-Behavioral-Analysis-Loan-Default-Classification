@@ -20,11 +20,17 @@ st.set_page_config(
 st.markdown(
     """
     <style>
-    [data-testid="stSidebar"] { border-right: 1px solid #d9e1e8; }
+    [data-testid="stAppViewContainer"] { background: #f7f8fa; }
+    [data-testid="stSidebar"] { background: #eef4f5; border-right: 1px solid #d9e1e8; }
     [data-testid="stMetricValue"] { color: #0b7285; }
-    .hero { padding: 1.2rem 0 0.6rem; }
-    .eyebrow { color: #0b7285; font-size: 0.78rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; }
-    .muted { color: #5f6b76; }
+    [data-testid="stMetricLabel"] { color: #52606d; }
+    .block-container { max-width: 1320px; padding-top: 2.2rem; }
+    .hero { padding: 0.4rem 0 0.8rem; }
+    .eyebrow { color: #0b7285; font-size: 0.75rem; font-weight: 800; letter-spacing: 0.12em; text-transform: uppercase; }
+    .muted { color: #5f6b76; font-size: 1rem; }
+    .signal { background: #e6f4f1; border-left: 4px solid #0b7285; padding: 0.85rem 1rem; margin: 0.5rem 0 1.2rem; }
+    .sidebar-title { color: #0b7285; font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase; font-size: 0.72rem; }
+    .sidebar-note { color: #52606d; font-size: 0.82rem; line-height: 1.45; }
     </style>
     """,
     unsafe_allow_html=True,
@@ -53,6 +59,19 @@ def show_header(eyebrow: str, title: str, description: str) -> None:
     )
 
 
+def show_project_pulse() -> None:
+    st.sidebar.markdown('<div class="sidebar-title">Project pulse</div>', unsafe_allow_html=True)
+    st.sidebar.metric("Applications", "682")
+    pulse_left, pulse_right = st.sidebar.columns(2)
+    pulse_left.metric("Defaults", "76")
+    pulse_right.metric("Base rate", "11.1%")
+    st.sidebar.markdown(
+        '<div class="sidebar-note">Historical PKDD\'99 banking data<br>Pre-loan behavioral evidence only</div>',
+        unsafe_allow_html=True,
+    )
+    st.sidebar.divider()
+
+
 def comparison_page() -> None:
     metrics = load_csv("metrics_comparison.csv")
     cv = load_csv("cv_comparison.csv")
@@ -64,30 +83,47 @@ def comparison_page() -> None:
         "A single held-out split is shown alongside repeated cross-validation, so model choice is not driven by one lucky test split.",
     )
 
-    tuned_baseline = cv[(cv["setting"] == "baseline") & (cv["variant"] == "tuned")].copy()
-    best = tuned_baseline.sort_values("cv_f1_mean", ascending=False).iloc[0]
-    st.caption("Selection rule: highest tuned F1 mean under repeated stratified 5-fold x 10 cross-validation.")
+    metric_options = {
+        "F1 score": ("cv_f1_mean", "cv_f1_std"),
+        "Average precision": ("cv_ap_mean", "cv_ap_std"),
+        "ROC-AUC": ("cv_auc_mean", "cv_auc_std"),
+    }
+    controls = st.columns([1.2, 1, 1, 1.4])
+    metric_label = controls[0].selectbox("Rank models by", list(metric_options))
+    setting = controls[1].selectbox("Balance treatment", ["baseline", "smote"], format_func=str.title)
+    variant = controls[2].selectbox("Model state", ["tuned", "default"], format_func=str.title)
+    metric_column, spread_column = metric_options[metric_label]
+    selected = cv[(cv["setting"] == setting) & (cv["variant"] == variant)].copy()
+    best = selected.sort_values(metric_column, ascending=False).iloc[0]
+    controls[3].caption("Selection protocol")
+    controls[3].markdown("Repeated stratified 5-fold x 10 CV")
     cards = st.columns(4)
     cards[0].metric("Best model", best["model"])
-    cards[1].metric("Tuned F1", format_metric(best["cv_f1_mean"]))
+    cards[1].metric(metric_label, f"{best[metric_column]:.3f} ± {best[spread_column]:.3f}")
     cards[2].metric("Average precision", format_metric(best["cv_ap_mean"]))
     cards[3].metric("ROC-AUC", format_metric(best["cv_auc_mean"]))
+    st.markdown(
+        f'<div class="signal"><b>Reading this view:</b> {best["model"]} leads the selected '
+        f'{setting} / {variant} slice on {metric_label}. The error range shows how much the score moved across repeated folds.</div>',
+        unsafe_allow_html=True,
+    )
 
     left, right = st.columns(2)
     with left:
-        st.subheader("Repeated-CV leaderboard")
-        chart_data = tuned_baseline.sort_values("cv_f1_mean")
+        st.subheader(f"Leaderboard by {metric_label}")
+        chart_data = selected.sort_values(metric_column)
         fig, ax = plt.subplots(figsize=(7, 4))
-        ax.barh(chart_data["model"], chart_data["cv_f1_mean"], color="#0b7285")
-        ax.set_xlabel("Tuned F1 mean")
-        ax.set_xlim(0, max(0.65, chart_data["cv_f1_mean"].max() + 0.05))
+        ax.barh(chart_data["model"], chart_data[metric_column], color="#0b7285")
+        ax.set_xlabel(metric_label)
+        ax.set_xlim(0, min(1, chart_data[metric_column].max() + 0.12))
         ax.grid(axis="x", alpha=0.2)
         st.pyplot(fig, use_container_width=True)
         plt.close(fig)
     with right:
         st.subheader("F1 versus ranking quality")
+        tuned_baseline = cv[(cv["setting"] == "baseline") & (cv["variant"] == "tuned")].copy()
         fig, ax = plt.subplots(figsize=(7, 4))
-        ax.scatter(tuned_baseline["cv_f1_mean"], tuned_baseline["cv_auc_mean"], color="#f08c46", s=80)
+        ax.scatter(tuned_baseline["cv_f1_mean"], tuned_baseline["cv_auc_mean"], color="#f08c46", s=85)
         for _, row in tuned_baseline.iterrows():
             ax.annotate(row["model"], (row["cv_f1_mean"], row["cv_auc_mean"]), xytext=(5, 5), textcoords="offset points")
         ax.set_xlabel("Tuned F1 mean")
@@ -97,7 +133,7 @@ def comparison_page() -> None:
         plt.close(fig)
 
     st.subheader("All model runs")
-    display_cv = cv.copy()
+    display_cv = selected.copy()
     display_cv["configuration"] = display_cv["setting"] + " / " + display_cv["variant"]
     st.dataframe(
         display_cv[["model", "configuration", "cv_f1_mean", "cv_f1_std", "cv_ap_mean", "cv_auc_mean"]]
@@ -135,6 +171,15 @@ def best_model_page() -> None:
         f"It leads on repeated-CV F1 at {best['cv_f1_mean']:.3f} ± {best['cv_f1_std']:.3f}."
     )
 
+    rf = tuned_baseline[tuned_baseline["model"] == "RandomForest"].iloc[0]
+    lead_gap = best["cv_f1_mean"] - rf["cv_f1_mean"]
+    st.markdown(
+        f'<div class="signal"><b>Decision boundary:</b> Gradient Boosting leads Random Forest by only '
+        f'{lead_gap:.3f} F1 points, while Random Forest leads on Average Precision and ROC-AUC. '
+        "Use Gradient Boosting as the headline classifier and keep Random Forest as the ranking challenger.</div>",
+        unsafe_allow_html=True,
+    )
+
     reasons = st.columns(3)
     reasons[0].metric("F1", f"{best['cv_f1_mean']:.3f} ± {best['cv_f1_std']:.3f}")
     reasons[1].metric("Average precision", f"{best['cv_ap_mean']:.3f}")
@@ -157,6 +202,12 @@ def best_model_page() -> None:
     st.subheader("Selected model on the held-out split")
     st.dataframe(model_metrics, use_container_width=True, hide_index=True)
     st.caption("The held-out table is a reference check. The model selection itself uses repeated cross-validation.")
+
+    with st.expander("What would change the decision?"):
+        st.markdown(
+            "Use a recent portfolio, nested cross-validation, and an explicit cost matrix before deployment. "
+            "If ranking quality becomes more important than F1 classification, Random Forest is the natural challenger."
+        )
 
 
 def parse_itemset(value: str) -> str:
@@ -188,6 +239,15 @@ def patterns_page() -> None:
     cards[1].metric("Apriori itemsets", int((itemsets["method"] == "apriori").sum()))
     cards[2].metric("Default-oriented rules", len(rules))
 
+    method_counts = itemsets.groupby("method").size().reset_index(name="count")
+    st.subheader("Mining coverage")
+    fig, ax = plt.subplots(figsize=(7, 2.8))
+    ax.bar(method_counts["method"].str.title(), method_counts["count"], color=["#0b7285", "#f08c46"])
+    ax.set_ylabel("Itemsets")
+    ax.grid(axis="y", alpha=0.2)
+    st.pyplot(fig, use_container_width=True)
+    plt.close(fig)
+
     itemsets = itemsets.copy()
     itemsets["items"] = itemsets["itemsets"].map(parse_itemset)
     st.subheader("Most frequent patterns")
@@ -200,17 +260,22 @@ def patterns_page() -> None:
     rules = rules.copy()
     rules["if_behavior"] = rules["antecedents"].map(parse_itemset)
     st.subheader("Rules whose consequence is default")
-    st.dataframe(
-        rules[["method", "if_behavior", "support", "confidence", "lift"]].sort_values("lift", ascending=False),
-        use_container_width=True,
-        hide_index=True,
-    )
+    if rules.empty:
+        st.info("No rule reaches the configured confidence threshold. This is a finding, not a dashboard error.")
+        st.caption("Try a lower confidence threshold in tools/pattern_mining.py only as a sensitivity analysis; do not compare thresholds as if they were the same experiment.")
+    else:
+        st.dataframe(
+            rules[["method", "if_behavior", "support", "confidence", "lift"]].sort_values("lift", ascending=False),
+            use_container_width=True,
+            hide_index=True,
+        )
 
 
 page = st.sidebar.radio(
     "Explore",
     ["Model comparison", "Why the best model", "FP-Growth & patterns"],
 )
+show_project_pulse()
 st.sidebar.divider()
 st.sidebar.caption("PKDD'99 loan default classification\nPre-loan behavioral evidence")
 
