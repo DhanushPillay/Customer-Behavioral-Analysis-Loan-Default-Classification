@@ -49,6 +49,7 @@ flowchart LR
 ## Directory Structure
 - `/data/`: Raw PKDD'99 CSV files (`trans.csv`, `loan.csv`, `client.csv`, etc.) plus the engineered `loan_features.csv` (682 loans, 27 columns).
 - `/docs/`: `Problem_Statement.md` (the jury problem statement), `Jury2_Report.md` (final report), `jury2_requirements.md` (task checklist), `SYNOPSIS.md`, `SYSTEM_REQUIREMENTS.md` (reproduction guide), `REFERENCES.md`.
+- `/docs/`: `Complete_Project_Report.md` provides the consolidated report for the full project, including preprocessing, EDA, modeling, segmentation, pattern mining, and dashboard delivery.
 - `/notebooks/`: Executed Jupyter notebooks, run in order:
   1. `01_preprocessing.ipynb` (cleaning, target definition: 606 good vs 76 default)
   2. `02_features.ipynb` (pre-loan behavioral features, leakage-checked)
