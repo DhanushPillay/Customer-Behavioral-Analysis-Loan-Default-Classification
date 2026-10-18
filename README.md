@@ -5,6 +5,27 @@ This repository folder contains the code, data, and documentation for the Jury 2
 
 The project applies machine learning algorithms to the PKDD'99 Financial Dataset to classify and predict **Loan Default Risk** based on customer transaction behavior.
 
+## Streamlit Dashboard
+
+The project includes a three-view dashboard in `app.py`:
+
+1. **Model comparison**: compare every model, baseline/SMOTE arm, and tuned/default variant using repeated cross-validation.
+2. **Why the best model**: explain why tuned baseline Gradient Boosting is the headline selection, including its close Random Forest alternative and feature evidence.
+3. **FP-Growth & patterns**: inspect frequent baskets and default-oriented association rules from Apriori and FP-Growth.
+
+Install the requirements and start the dashboard from the repository root:
+
+```bash
+pip install -r requirements.txt
+python -m streamlit run app.py
+```
+
+Before opening the pattern view, generate its output tables if they are not already present:
+
+```bash
+python tools/pattern_mining.py
+```
+
 ## Pipeline
 
 ```mermaid
@@ -33,6 +54,7 @@ flowchart LR
   4. `04_modeling.ipynb` (Decision Tree, Naive Bayes, Random Forest, SVM, KNN, Gradient Boosting; baseline vs SMOTE, randomized hyperparameter search, repeated 5-fold x 10 cross-validation, model selection, persisted best pipe)
   5. `05_segmentation.ipynb` (KMeans behavior segments: quieter low-balance vs active; default rate per segment)
 - `/outputs/`: `metrics_comparison.csv` (12 runs, single split), `tuning_results.csv` (12 hyperparameter searches), `cv_comparison.csv` (24 rows, 50 estimates each, the selection table), `segment_profiles.csv`, `models/best_GradientBoosting_baseline_tuned.pkl`, and `figures/` (14 PNGs: target distribution, target correlations, full feature correlations, boxplots, age histogram, risk quadrant, confusion matrices, ROC curves, precision-recall curves, CV selection, tuning curves, RF importance, segment default rates, segment scatter).
+- `/tools/`: `feature_group_analysis.py` compares behavior-only, loan-term, and demographic feature groups; `pattern_mining.py` runs Apriori and FP-Growth on pre-loan account baskets.
 
 ## Project Objectives
 1. Perform complete data preprocessing and feature engineering.
