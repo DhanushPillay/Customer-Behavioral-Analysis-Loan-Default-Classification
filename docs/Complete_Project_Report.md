@@ -12,6 +12,78 @@ The final dataset contains 682 loans: 606 good loans and 76 defaults. The select
 
 The strongest risk signals are low pre-loan balances, especially `min_balance` and `balance_at_loan`. The results support a balance-capacity review as a useful screening aid, but not an automatic lending decision. The data is historical and contains only 76 defaults, so the model must be revalidated on current portfolio data before production use.
 
+## Rubric Coverage Summary
+
+### Brief Introduction
+
+Loan default classification uses historical customer and account behavior to estimate whether a new loan application is likely to become problematic. In this project, the bank's pre-loan transaction history is converted into measurable behavioral indicators, analyzed for risk patterns, and used to train classification models. The objective is decision support: applications with elevated estimated risk can receive additional review before approval.
+
+### Dataset (3 marks)
+
+The project uses the PKDD'99 Financial Dataset, an anonymized Czech banking dataset covering 1993 to 1998. It contains customer, account, relationship, transaction, and loan tables. The most important scale figures are approximately 1.06 million transactions, 4,500 accounts, 5,369 clients, and 682 loans. The final modeling population contains 606 good loans and 76 defaults.
+
+### Architecture Diagram (3 marks)
+
+The project architecture flows from raw CSV files through preprocessing, feature engineering, EDA, model training, segmentation, and pattern mining. The outputs are persisted as CSV metrics, figures, segment profiles, pattern tables, and a tuned model pipeline. The Streamlit application reads these artifacts for interactive review. The Mermaid architecture diagram is provided in [Section 4](#4-end-to-end-architecture).
+
+### Inputs and Outputs (3 marks)
+
+**Inputs:** `loan.csv`, `trans.csv`, `client.csv`, `account.csv`, and `disp.csv`. The main predictive input is a loan-level row containing pre-loan behavioral features, loan terms, and limited demographic context.
+
+**Outputs:** `data/loan_features.csv`, model metrics, cross-validation comparisons, tuning results, figures, the persisted best-model pipeline, segment profiles, FP-Growth/Apriori itemsets and rules, and the Streamlit dashboard views.
+
+### Class Labels (3 marks)
+
+The target is binary:
+
+| Original status | Project label | Meaning |
+|---|---|---|
+| A, C | `good` / 0 | Loan completed or running without payment problems |
+| B, D | `default` / 1 | Loan completed unpaid or running in debt |
+
+The class distribution is 606 good loans (88.86 percent) and 76 defaults (11.14 percent). Because the default class is smaller, accuracy is never used alone to judge the models.
+
+### Pattern Matching, FP-Growth, and Apriori (3 marks)
+
+Pattern matching is included as a supplementary behavioral-analysis layer. Each account's transactions before its first loan are represented as a basket of recurring items such as transaction type, high-amount activity, and negative balance. Apriori enumerates frequent itemsets, while FP-Growth uses a compressed pattern tree and is more efficient for larger or denser basket collections.
+
+Both methods use minimum support 0.05 and maximum itemset length three. The current run produces 25 Apriori itemsets and 25 FP-Growth itemsets. No default-consequent rule reaches the configured confidence threshold, so the result is reported transparently rather than inventing a risky rule. Pattern mining complements the classifier by producing interpretable co-occurrence evidence; it does not replace model-based prediction.
+
+### Comparison with Other Classification Algorithms (5 marks)
+
+The project compares Decision Tree, Gaussian Naive Bayes, Random Forest, calibrated SVM, KNN, and Gradient Boosting. Every algorithm is evaluated with the original imbalanced data and with a training-only SMOTE arm. The comparison uses the same feature table, split logic, tuning strategy, and repeated cross-validation protocol, making the results comparable.
+
+Tuned Gradient Boosting is selected by F1. Random Forest is the closest leading alternative and is stronger on Average Precision and ROC-AUC. Decision Tree is interpretable but has weaker ranking metrics. SVM benefits most from tuning. Naive Bayes is a useful probabilistic baseline, while KNN is the weakest overall except for its improvement under SMOTE.
+
+### Validation Test (5 marks)
+
+The data is split with stratification into 75 percent training and 25 percent held-out testing. The test set contains 171 loans and 19 defaults. Default-setting test metrics, confusion matrices, ROC curves, and precision-recall curves are recorded in `outputs/metrics_comparison.csv` and the figures directory.
+
+The held-out test is treated as a reference check rather than the sole selection basis. Hyperparameters are searched on the training split using inner 5-fold stratified validation. Final selection uses `RepeatedStratifiedKFold` with 5 folds and 10 repeats, producing 50 estimates per configuration. This design exposes fold-to-fold uncertainty and reduces the chance of selecting a model because of one favorable split.
+
+### Classification Algorithms (5 marks)
+
+The six implemented classification algorithms are:
+
+1. **Decision Tree:** interpretable nonlinear rules and feature splits.
+2. **Gaussian Naive Bayes:** fast probabilistic baseline based on conditional feature distributions.
+3. **Random Forest:** an ensemble of decision trees that provides robust nonlinear prediction and feature importance.
+4. **Calibrated SVM:** a margin-based classifier with calibrated probabilities for ROC and precision-recall analysis.
+5. **KNN:** a distance-based baseline that compares an application with nearby observations.
+6. **Gradient Boosting:** sequentially fitted trees that correct previous errors and provide a strong tabular-data classifier.
+
+All model transformations are placed inside pipelines. Standardization and SMOTE are learned only from each training fold, preventing data leakage.
+
+### Innovation Added to the Classification Algorithm (5 marks)
+
+The main innovation is the evaluation and feature-design strategy rather than claiming a new mathematical classifier. First, all behavioral features are restricted to transactions before the loan date, preventing post-decision leakage. Second, the project evaluates baseline and SMOTE pipelines consistently instead of assuming that class balancing improves every model. Third, randomized tuning is combined with 50 repeated-CV estimates, so model selection includes uncertainty rather than relying on one split. Fourth, the classifier is supported by balance-capacity risk analysis, customer segmentation, and association-rule mining. Finally, the selected pipeline is persisted and exposed through an interactive dashboard for reproducible review.
+
+### Performance Metrics (5 marks)
+
+The project reports Accuracy, Precision, Recall, F1-score, Average Precision, and ROC-AUC. Accuracy describes total correctness but can be misleading with only 11.14 percent defaults. Precision measures how many flagged applications are actually defaults. Recall measures how many defaults are caught. F1 balances precision and recall. Average Precision is especially useful under class imbalance because it evaluates the precision-recall ranking. ROC-AUC measures ranking separation across thresholds.
+
+The selection result is tuned baseline Gradient Boosting with F1 **0.571 +/- 0.120**, Average Precision **0.654**, and ROC-AUC **0.864**. Tuned baseline Random Forest records F1 **0.556 +/- 0.112**, Average Precision **0.661**, and ROC-AUC **0.877**. The full comparison table appears in the classification section below.
+
 ## 2. Problem Statement
 
 Loan defaults create direct financial losses and increase the cost of credit operations. A bank needs an evidence-based way to identify applications that deserve additional review while avoiding unnecessary rejection of reliable customers.
