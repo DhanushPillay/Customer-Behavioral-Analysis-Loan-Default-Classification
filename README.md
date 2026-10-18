@@ -20,6 +20,8 @@ pip install -r requirements.txt
 python -m streamlit run app.py
 ```
 
+Once Streamlit is running, open the [Loan Default Intelligence dashboard](http://localhost:8501) in your browser. The source is available in [app.py](app.py).
+
 Before opening the pattern view, generate its output tables if they are not already present:
 
 ```bash
