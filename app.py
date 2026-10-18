@@ -20,17 +20,21 @@ st.set_page_config(
 st.markdown(
     """
     <style>
-    [data-testid="stAppViewContainer"] { background: #f7f8fa; }
-    [data-testid="stSidebar"] { background: #eef4f5; border-right: 1px solid #d9e1e8; }
-    [data-testid="stMetricValue"] { color: #0b7285; }
-    [data-testid="stMetricLabel"] { color: #52606d; }
+    :root { --ink: #202124; --blue: #3a86ff; --coral: #ff595e; --citrus: #ffca3a; --paper: #f7f7f2; }
+    [data-testid="stAppViewContainer"] { background: var(--paper); color: var(--ink); }
+    [data-testid="stSidebar"] { background: #202124; border-right: 4px solid var(--coral); }
+    [data-testid="stSidebar"] * { color: #f7f7f2; }
+    [data-testid="stMetricValue"] { color: var(--coral); }
+    [data-testid="stMetricLabel"] { color: #5c6268; }
+    h1, h2, h3 { color: var(--ink); letter-spacing: 0; }
     .block-container { max-width: 1320px; padding-top: 2.2rem; }
     .hero { padding: 0.4rem 0 0.8rem; }
-    .eyebrow { color: #0b7285; font-size: 0.75rem; font-weight: 800; letter-spacing: 0.12em; text-transform: uppercase; }
-    .muted { color: #5f6b76; font-size: 1rem; }
-    .signal { background: #e6f4f1; border-left: 4px solid #0b7285; padding: 0.85rem 1rem; margin: 0.5rem 0 1.2rem; }
-    .sidebar-title { color: #0b7285; font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase; font-size: 0.72rem; }
-    .sidebar-note { color: #52606d; font-size: 0.82rem; line-height: 1.45; }
+    .eyebrow { color: var(--blue); font-size: 0.75rem; font-weight: 800; letter-spacing: 0.12em; text-transform: uppercase; }
+    .muted { color: #5c6268; font-size: 1rem; }
+    .signal { background: #eef4ff; border-left: 4px solid var(--blue); padding: 0.85rem 1rem; margin: 0.5rem 0 1.2rem; }
+    .sidebar-title { color: var(--citrus); font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase; font-size: 0.72rem; }
+    .sidebar-note { color: #d6dde0; font-size: 0.82rem; line-height: 1.45; }
+    [data-testid="stSidebar"] [role="radiogroup"] label p { color: #f7f7f2; }
     </style>
     """,
     unsafe_allow_html=True,
@@ -113,7 +117,7 @@ def comparison_page() -> None:
         st.subheader(f"Leaderboard by {metric_label}")
         chart_data = selected.sort_values(metric_column)
         fig, ax = plt.subplots(figsize=(7, 4))
-        ax.barh(chart_data["model"], chart_data[metric_column], color="#0b7285")
+        ax.barh(chart_data["model"], chart_data[metric_column], color="#3a86ff")
         ax.set_xlabel(metric_label)
         ax.set_xlim(0, min(1, chart_data[metric_column].max() + 0.12))
         ax.grid(axis="x", alpha=0.2)
@@ -123,7 +127,7 @@ def comparison_page() -> None:
         st.subheader("F1 versus ranking quality")
         tuned_baseline = cv[(cv["setting"] == "baseline") & (cv["variant"] == "tuned")].copy()
         fig, ax = plt.subplots(figsize=(7, 4))
-        ax.scatter(tuned_baseline["cv_f1_mean"], tuned_baseline["cv_auc_mean"], color="#f08c46", s=85)
+        ax.scatter(tuned_baseline["cv_f1_mean"], tuned_baseline["cv_auc_mean"], color="#ff595e", s=85)
         for _, row in tuned_baseline.iterrows():
             ax.annotate(row["model"], (row["cv_f1_mean"], row["cv_auc_mean"]), xytext=(5, 5), textcoords="offset points")
         ax.set_xlabel("Tuned F1 mean")
@@ -242,7 +246,7 @@ def patterns_page() -> None:
     method_counts = itemsets.groupby("method").size().reset_index(name="count")
     st.subheader("Mining coverage")
     fig, ax = plt.subplots(figsize=(7, 2.8))
-    ax.bar(method_counts["method"].str.title(), method_counts["count"], color=["#0b7285", "#f08c46"])
+    ax.bar(method_counts["method"].str.title(), method_counts["count"], color=["#3a86ff", "#ff595e"])
     ax.set_ylabel("Itemsets")
     ax.grid(axis="y", alpha=0.2)
     st.pyplot(fig, use_container_width=True)
