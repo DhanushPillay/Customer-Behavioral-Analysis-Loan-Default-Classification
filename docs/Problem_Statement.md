@@ -27,6 +27,7 @@ Banks lose money when loans default, and the information that predicts default i
 - Hyperparameter Tuning (randomized search)
 - Feature Importance
 - Clustering (KMeans) for customer segmentation
+- Association-rule mining (Apriori and FP-Growth) on pre-loan account baskets
 
 ---
 
@@ -51,4 +52,4 @@ Tuned Gradient Boosting on the unresampled data is the selected model, at repeat
 
 ## Scope Note
 
-The jury guidelines place Association Rule Mining (Apriori, FP-Growth) in Unit III. This project covers the Unit IV classification and prediction outcomes in full and the Unit III data preprocessing, feature engineering, EDA, and visualization outcomes, and does not include association rule mining.
+Association Rule Mining is implemented as a supplementary Unit III analysis in `tools/pattern_mining.py`. It uses only transactions before each account's first loan and writes `outputs/pattern_itemsets.csv` and `outputs/pattern_rules.csv`. The primary objective remains loan-default classification.

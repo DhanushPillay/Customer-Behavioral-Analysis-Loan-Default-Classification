@@ -26,6 +26,8 @@ The pipeline is implemented in `notebooks/01_preprocessing.ipynb` and `notebooks
 
 **Transformation.** The 18 modeling features are all numeric. Gender is binary encoded. Continuous features are standardized with `StandardScaler` inside the modeling pipelines, fitted on the training split only, so no test information leaks into training.
 
+**Attribute contribution check.** The model inputs are intentionally separated into three groups: pre-loan behavior, loan terms, and demographics. `tools/feature_group_analysis.py` evaluates behavior alone, behavior plus loan terms, and behavior plus both loan terms and demographics under repeated stratified cross-validation. This makes the role of non-behavior attributes explicit rather than assuming that every joined column is equally useful. Age and gender remain descriptive context, not recommended decision variables, because their measured signal is negligible.
+
 ## 4. Exploratory Data Analysis (EDA) and Visualizations
 
 Implemented in `notebooks/03_eda.ipynb`. Figures are stored in `outputs/figures/`.
@@ -49,7 +51,7 @@ This project is primarily a classification task, but the judging matrix also exp
 - **Apriori** enumerates frequent itemsets and derives rules from support and confidence thresholds. It is useful when the analysis is easier to explain and the dataset is not too large.
 - **FP-Growth** compresses the transaction database into a frequent-pattern tree and is efficient for larger baskets. It is useful when the same transaction log must be scanned repeatedly for dense itemsets.
 
-In this project, the transaction data was treated as a basket dataset by grouping account-level events into recurring behavioral patterns, such as high-frequency withdrawals, regular deposits, low-balance states, and overdraft-like events. These patterns were reviewed as part of the behavioral interpretation, even though the final predictive model remained the classification pipeline. This strengthens the traceability between raw transaction behavior and model explanations, without altering the main objective of loan default classification.
+In this project, `tools/pattern_mining.py` treats each account's transactions before its first loan as a basket of recurring events, including transaction type, high-amount activity, and negative-balance events. It runs both Apriori and FP-Growth and writes the discovered itemsets to `outputs/pattern_itemsets.csv` and rules whose consequent is default to `outputs/pattern_rules.csv`. This strengthens the traceability between raw transaction behavior and model explanations without using post-loan transactions.
 
 ## 6. Implementation of Classification Algorithms
 

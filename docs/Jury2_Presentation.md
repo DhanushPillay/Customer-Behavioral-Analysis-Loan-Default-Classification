@@ -45,6 +45,7 @@ To satisfy the judging matrix, the project also reviews transaction behavior as 
 - Apriori identifies frequent itemsets and association rules
 - FP-Growth is used as a faster alternative for dense transaction data
 - These patterns support the interpretation of risky customer behavior, even though the final prediction task remains classification
+- Implemented in `tools/pattern_mining.py`; outputs are `outputs/pattern_itemsets.csv` and `outputs/pattern_rules.csv`
 
 ## 8. Classification Algorithms
 - Decision Tree

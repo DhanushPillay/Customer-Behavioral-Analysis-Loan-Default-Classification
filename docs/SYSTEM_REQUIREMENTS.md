@@ -11,13 +11,13 @@ Any 64-bit laptop or lab machine with at least 4 GB RAM and 1 GB free disk space
 - imbalanced-learn 0.14.2 (SMOTE comparison arm)
 - Jupyter 1.1.1 + nbconvert 7.17.1 (notebook execution and verification)
 
-Install everything with `pip install -r requirements.txt` from the `2nd jury/` folder. The pins are exact on purpose: the saved model pickle and every reported number were produced with this set, and scikit-learn refuses to load a pickle written by a different minor version.
+Install everything with `pip install -r requirements.txt` from the repository root. The pins are exact on purpose: the saved model pickle and every reported number were produced with this set, and scikit-learn refuses to load a pickle written by a different minor version.
 
 ## Data Required
-Place these PKDD'99 files in `2nd jury/data/` (already present): `loan.csv`, `trans.csv`, `client.csv`, `account.csv`, `disp.csv`. All files use `;` as the separator.
+Place these PKDD'99 files in `data/` (already present): `loan.csv`, `trans.csv`, `client.csv`, `account.csv`, `disp.csv`. All raw files use `;` as the separator.
 
 ## Reproduce (in order)
-Run from the `2nd jury/` folder:
+Run from the repository root:
 
 ```bash
 py -m nbconvert --to notebook --execute notebooks/01_preprocessing.ipynb --output 01_preprocessing.ipynb
@@ -28,3 +28,12 @@ py -m nbconvert --to notebook --execute notebooks/05_segmentation.ipynb --output
 ```
 
 Expected artifacts: `data/loan_features.csv` (682 rows, 27 columns), `outputs/metrics_comparison.csv` (12 model runs, single split), `outputs/tuning_results.csv` (12 randomized hyperparameter searches), `outputs/cv_comparison.csv` (24 rows, repeated stratified 5-fold x 10), `outputs/segment_profiles.csv` (2 KMeans segments), `outputs/models/best_GradientBoosting_baseline_tuned.pkl`, and 14 PNGs in `outputs/figures/`. Each notebook ends with assert cells; a clean run with no errors is the pass condition.
+
+Run the supplementary analyses after the notebooks:
+
+```bash
+py tools/feature_group_analysis.py
+py tools/pattern_mining.py
+```
+
+These create `outputs/feature_group_comparison.csv`, `outputs/pattern_itemsets.csv`, and `outputs/pattern_rules.csv`.
