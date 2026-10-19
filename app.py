@@ -87,9 +87,9 @@ def comparison_page() -> None:
     segments = load_csv("segment_profiles.csv")
 
     show_header(
-        "01 / Model comparison",
-        "Which model earns the review seat?",
-        "A single held-out split is shown alongside repeated cross-validation, so model choice is not driven by one lucky test split.",
+        "05 / Model comparison",
+        "Six models. One practical shortlist.",
+        "Compare every classifier visually, then choose the model that best fits the lending workflow.",
     )
 
     metric_options = {
@@ -116,6 +116,31 @@ def comparison_page() -> None:
         f'{setting} / {variant} slice on {metric_label}. The error range shows how much the score moved across repeated folds.</div>',
         unsafe_allow_html=True,
     )
+
+    st.subheader("All models at a glance")
+    board = selected.sort_values(metric_column, ascending=False).reset_index(drop=True)
+    model_columns = st.columns(min(3, len(board)))
+    for index, (_, row) in enumerate(board.iterrows()):
+        column = model_columns[index % len(model_columns)]
+        column.metric(row["model"], f"{row[metric_column]:.3f}", f"F1 {row['cv_f1_mean']:.3f} | AUC {row['cv_auc_mean']:.3f}")
+
+    st.subheader("Metric heatmap")
+    heatmap_columns = ["accuracy", "precision", "recall", "f1", "average_precision", "roc_auc"]
+    held_out = metrics[metrics["setting"] == setting].copy()
+    available_columns = [column for column in heatmap_columns if column in held_out.columns]
+    if available_columns:
+        heatmap = held_out.set_index("model")[available_columns].sort_values("f1", ascending=False)
+        labels = [column.replace("_", " ").title() for column in available_columns]
+        fig, ax = plt.subplots(figsize=(12, max(3.5, len(heatmap) * 0.7)))
+        image = ax.imshow(heatmap.values, cmap="YlOrRd", vmin=0, vmax=1, aspect="auto")
+        ax.set_xticks(range(len(labels)), labels, rotation=25, ha="right")
+        ax.set_yticks(range(len(heatmap.index)), heatmap.index)
+        for row_index in range(len(heatmap.index)):
+            for column_index in range(len(available_columns)):
+                ax.text(column_index, row_index, f"{heatmap.iloc[row_index, column_index]:.2f}", ha="center", va="center", color="black")
+        fig.colorbar(image, ax=ax, label="Score")
+        st.pyplot(fig, use_container_width=True)
+        plt.close(fig)
 
     left, right = st.columns(2)
     with left:
