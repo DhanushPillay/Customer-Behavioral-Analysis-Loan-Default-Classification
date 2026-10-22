@@ -519,6 +519,7 @@ page = st.sidebar.radio(
         "Project overview",
         "Data & pipeline",
         "EDA & portfolio signals",
+        "FP-Growth & patterns",
         "Recommendations",
     ],
 )
@@ -536,5 +537,7 @@ elif page == "Data & pipeline":
     data_pipeline_page()
 elif page == "EDA & portfolio signals":
     eda_page()
+elif page == "FP-Growth & patterns":
+    patterns_page()
 else:
     recommendations_page()
