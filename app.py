@@ -87,9 +87,9 @@ def comparison_page() -> None:
     segments = load_csv("segment_profiles.csv")
 
     show_header(
-        "01 / Model comparison",
-        "Which model earns the review seat?",
-        "A single held-out split is shown alongside repeated cross-validation, so model choice is not driven by one lucky test split.",
+        "05 / Model comparison",
+        "Six models. One practical shortlist.",
+        "Compare every classifier visually, then choose the model that best fits the lending workflow.",
     )
 
     metric_options = {
@@ -116,6 +116,31 @@ def comparison_page() -> None:
         f'{setting} / {variant} slice on {metric_label}. The error range shows how much the score moved across repeated folds.</div>',
         unsafe_allow_html=True,
     )
+
+    st.subheader("All models at a glance")
+    board = selected.sort_values(metric_column, ascending=False).reset_index(drop=True)
+    model_columns = st.columns(min(3, len(board)))
+    for index, (_, row) in enumerate(board.iterrows()):
+        column = model_columns[index % len(model_columns)]
+        column.metric(row["model"], f"{row[metric_column]:.3f}", f"F1 {row['cv_f1_mean']:.3f} | AUC {row['cv_auc_mean']:.3f}")
+
+    st.subheader("Metric heatmap")
+    heatmap_columns = ["accuracy", "precision", "recall", "f1", "average_precision", "roc_auc"]
+    held_out = metrics[metrics["setting"] == setting].copy()
+    available_columns = [column for column in heatmap_columns if column in held_out.columns]
+    if available_columns:
+        heatmap = held_out.set_index("model")[available_columns].sort_values("f1", ascending=False)
+        labels = [column.replace("_", " ").title() for column in available_columns]
+        fig, ax = plt.subplots(figsize=(12, max(3.5, len(heatmap) * 0.7)))
+        image = ax.imshow(heatmap.values, cmap="YlOrRd", vmin=0, vmax=1, aspect="auto")
+        ax.set_xticks(range(len(labels)), labels, rotation=25, ha="right")
+        ax.set_yticks(range(len(heatmap.index)), heatmap.index)
+        for row_index in range(len(heatmap.index)):
+            for column_index in range(len(available_columns)):
+                ax.text(column_index, row_index, f"{heatmap.iloc[row_index, column_index]:.2f}", ha="center", va="center", color="black")
+        fig.colorbar(image, ax=ax, label="Score")
+        st.pyplot(fig, use_container_width=True)
+        plt.close(fig)
 
     left, right = st.columns(2)
     with left:
@@ -339,17 +364,177 @@ def patterns_page() -> None:
         )
 
 
+def overview_page() -> None:
+    features = load_features()
+    defaults = int(features["target"].sum())
+    good = len(features) - defaults
+    show_header(
+        "Loan default intelligence",
+        "From transaction history to a safer lending conversation",
+        "An end-to-end decision-support dashboard for understanding default risk before a loan is approved.",
+    )
+    cards = st.columns(4)
+    cards[0].metric("Loans analysed", f"{len(features):,}")
+    cards[1].metric("Default rate", f"{features['target'].mean():.1%}")
+    cards[2].metric("Good loans", f"{good:,}")
+    cards[3].metric("Default cases", f"{defaults:,}")
+    st.markdown(
+        '<div class="signal"><b>Business question:</b> Can pre-loan transaction behaviour help a bank identify applications that deserve additional review before approval, without replacing human judgement?</div>',
+        unsafe_allow_html=True,
+    )
+    st.subheader("The project in one view")
+    flow = st.columns(5)
+    stages = [("01", "Collect", "PKDD'99 banking tables"), ("02", "Prepare", "Clean, join and label loans"), ("03", "Engineer", "Pre-loan behaviour features"), ("04", "Learn", "Compare six classifiers"), ("05", "Act", "Review risk and capacity")]
+    for column, (number, title, detail) in zip(flow, stages):
+        column.markdown(f"**{number} / {title}**\n\n{detail}")
+    left, right = st.columns([1.15, 1])
+    with left:
+        st.subheader("What the analysis found")
+        st.markdown("- Defaults represent **11.14%** of the modelling population, so accuracy alone is not enough.\n- **Minimum balance** and **balance at loan time** are stronger signals than activity volume alone.\n- Tuned Gradient Boosting leads the repeated-CV F1 selection rule; Random Forest remains a strong ranking challenger.\n- Pattern mining found recurring behaviour baskets, but no default rule met the configured confidence threshold.")
+    with right:
+        st.subheader("Who can use this dashboard?")
+        st.markdown("**Credit analyst:** prioritise manual review.  \n**Risk manager:** test portfolio cut-offs and expected exposure.  \n**Data team:** defend model choice and validation.  \n**Viva panel:** walk from source data to recommendation in one screen.")
+    st.subheader("Important boundary")
+    st.warning("This is a historical decision-support study, not an automated approval system. Revalidate on current portfolio data, monitor drift, and apply fair-lending and affordability checks before operational use.")
+
+
+def data_pipeline_page() -> None:
+    features = load_features()
+    show_header("02 / Data story", "How raw banking records become loan features", "The feature table contains only information available before the loan date, which is the key protection against post-decision leakage.")
+    source_table = pd.DataFrame([
+        ["loan.csv", "Target and loan terms", "Amount, duration, payments, status"],
+        ["trans.csv", "Behavioural source", "Deposits, withdrawals, balances and dates"],
+        ["client.csv", "Customer attributes", "Client identity and district"],
+        ["account.csv", "Account metadata", "Account creation and district"],
+        ["disp.csv", "Relationship bridge", "Links owners to accounts"],
+    ], columns=["Source", "Role", "Fields used"])
+    st.subheader("Dataset and source")
+    st.caption("PKDD'99 Financial Dataset | anonymised Czech banking records covering 1993-1998")
+    st.dataframe(source_table, use_container_width=True, hide_index=True)
+    st.subheader("Preprocessing pipeline")
+    pipeline = st.columns(4)
+    for column, title, detail in zip(pipeline, ["Clean", "Join", "Restrict", "Transform"], ["Parse dates, check duplicates and missing values", "Link loan, account and client ownership", "Keep transactions strictly before each loan date", "Encode gender and scale features inside training pipelines"]):
+        column.info(f"**{title}**\n\n{detail}")
+    quality = pd.DataFrame({"Check": ["Rows in modelling table", "Columns", "Missing values", "Target classes", "Default prevalence"], "Result": [f"{len(features):,}", f"{features.shape[1]}", f"{int(features.isna().sum().sum())}", "Good / Default", f"{features['target'].mean():.2%}"], "Why it matters": ["One row per loan", "Behaviour plus terms and context", "Ready for modelling", "Binary classification target", "Accuracy must be interpreted carefully"]})
+    st.subheader("Data-quality checkpoint")
+    st.dataframe(quality, use_container_width=True, hide_index=True)
+
+
+def eda_page() -> None:
+    features = load_features()
+    show_header("03 / Exploratory analysis", "Where does default risk show up?", "Interactive views of portfolio balance, loan terms, and pre-loan customer behaviour.")
+    target_labels = features["target"].map({0: "Good", 1: "Default"})
+    left, right = st.columns(2)
+    with left:
+        st.subheader("Portfolio composition")
+        counts = target_labels.value_counts().reindex(["Good", "Default"]).fillna(0)
+        fig, ax = plt.subplots(figsize=(6, 3.5))
+        ax.bar(counts.index, counts.values, color=["#2a9d8f", "#e76f51"])
+        ax.set_ylabel("Loans")
+        ax.grid(axis="y", alpha=0.2)
+        st.pyplot(fig, use_container_width=True)
+        plt.close(fig)
+    with right:
+        st.subheader("Balance capacity by outcome")
+        groups = [features.loc[features["target"] == value, "balance_at_loan"] for value in [0, 1]]
+        fig, ax = plt.subplots(figsize=(6, 3.5))
+        ax.boxplot(groups, labels=["Good", "Default"], patch_artist=True, boxprops={"facecolor": "#bde0fe"})
+        ax.set_ylabel("Balance at loan")
+        ax.grid(axis="y", alpha=0.2)
+        st.pyplot(fig, use_container_width=True)
+        plt.close(fig)
+    st.subheader("Default rate by loan duration")
+    duration_summary = features.groupby("duration", as_index=False).agg(loans=("target", "size"), default_rate=("target", "mean"))
+    fig, ax = plt.subplots(figsize=(12, 3.8))
+    ax.bar(duration_summary["duration"].astype(str), duration_summary["default_rate"], color="#457b9d")
+    ax.set_xlabel("Duration (months)")
+    ax.set_ylabel("Default rate")
+    ax.yaxis.set_major_formatter(plt.FuncFormatter(lambda value, _: f"{value:.0%}"))
+    ax.grid(axis="y", alpha=0.2)
+    st.pyplot(fig, use_container_width=True)
+    plt.close(fig)
+    st.dataframe(duration_summary.style.format({"default_rate": "{:.1%}"}), use_container_width=True, hide_index=True)
+
+
+def simulator_page() -> None:
+    features = load_features()
+    show_header("04 / Loan review simulator", "Test a lending policy before it reaches the portfolio", "Change the application and capacity assumptions to see how a review threshold changes exposure. This is a transparent scenario tool, not an approval engine.")
+    st.info("Innovation: use this screen for pre-screening, branch coaching, or policy what-if analysis. It converts a model-style risk signal into an operational review queue with a visible rationale.")
+    left, right = st.columns(2)
+    with left:
+        amount = st.number_input("Requested loan amount", min_value=1000.0, value=float(features["amount"].median()), step=5000.0)
+        duration = st.select_slider("Loan duration (months)", options=sorted(features["duration"].unique().tolist()), value=int(features["duration"].median()))
+        balance = st.number_input("Balance available at application", min_value=0.0, value=float(features["balance_at_loan"].median()), step=1000.0)
+    with right:
+        min_balance = st.number_input("Minimum observed balance", min_value=0.0, value=float(features["min_balance"].median()), step=500.0)
+        txn_rate = st.number_input("Transactions per month", min_value=0.0, value=float(features["txn_per_month"].median()), step=0.5)
+        review_cutoff = st.slider("Manual-review cutoff", 0.10, 0.90, 0.45, 0.05)
+    amount_pressure = amount / max(float(features["amount"].median()), 1.0)
+    balance_strength = balance / max(float(features["balance_at_loan"].median()), 1.0)
+    min_balance_strength = min_balance / max(float(features["min_balance"].median()), 1.0)
+    duration_pressure = duration / max(float(features["duration"].median()), 1.0)
+    activity_support = txn_rate / max(float(features["txn_per_month"].median()), 1.0)
+    risk_score = 0.11 + 0.10 * (amount_pressure - 1) + 0.14 * (duration_pressure - 1) - 0.10 * (balance_strength - 1) - 0.08 * (min_balance_strength - 1) - 0.03 * (activity_support - 1)
+    risk_score = max(0.01, min(0.95, risk_score))
+    decision = "Manual review" if risk_score >= review_cutoff else "Standard review"
+    expected_loss = amount * risk_score
+    st.subheader("Scenario result")
+    cards = st.columns(4)
+    cards[0].metric("Estimated risk index", f"{risk_score:.1%}")
+    cards[1].metric("Workflow", decision)
+    cards[2].metric("Exposure if defaulted", f"{amount:,.0f}")
+    cards[3].metric("Expected loss proxy", f"{expected_loss:,.0f}")
+    st.progress(risk_score, text=f"Risk index: {risk_score:.1%}")
+    rationale = []
+    if balance < features["balance_at_loan"].median():
+        rationale.append("available balance is below the portfolio median")
+    if min_balance < features["min_balance"].median():
+        rationale.append("the minimum observed balance is below the portfolio median")
+    if amount > features["amount"].median():
+        rationale.append("the requested amount is above the portfolio median")
+    if not rationale:
+        rationale.append("capacity and loan terms are close to or better than portfolio medians")
+    st.markdown(f'<div class="signal"><b>Why this result:</b> {"; ".join(rationale)}. Use the result to request documents or affordability evidence, not to auto-reject the applicant.</div>', unsafe_allow_html=True)
+
+
+def recommendations_page() -> None:
+    show_header("05 / Recommendations", "Turn the analysis into a responsible next step", "The dashboard closes the loop between technical findings, credit operations, and future model governance.")
+    recommendations = pd.DataFrame([
+        ["Credit review", "Prioritise low-balance and high-loan-to-balance applications for manual affordability checks.", "Lower avoidable default exposure"],
+        ["Portfolio policy", "Use the simulator to compare review cut-offs before changing approval policy.", "Quantify operational workload and exposure"],
+        ["Model governance", "Revalidate with recent data and monitor recall, precision, calibration and drift.", "Prevent historical patterns becoming stale rules"],
+        ["Fair lending", "Do not use age or gender as an automatic rejection reason; investigate explainable financial capacity signals.", "Keep decisions reviewable and defensible"],
+        ["Further innovation", "Add affordability, bureau, repayment and macroeconomic data when legally and operationally available.", "Move from retrospective classification to live early warning"],
+    ], columns=["Audience", "Recommendation", "Future value"])
+    st.dataframe(recommendations, use_container_width=True, hide_index=True)
+    st.subheader("What can be added next for loan teams?")
+    st.markdown("- **Early-warning monitoring:** score existing borrowers monthly and flag deteriorating balances before missed payments.\n- **Offer optimisation:** compare amount, duration and payment scenarios instead of treating risk as a simple yes/no label.\n- **Collections prioritisation:** combine predicted risk with exposure to focus limited outreach capacity.\n- **Decision audit trail:** store the input snapshot, score, threshold, reason codes and human outcome for every reviewed application.")
+
+
 page = st.sidebar.radio(
     "Explore",
-    ["Model comparison", "Why the best model", "FP-Growth & patterns"],
+    [
+        "Loan review simulator",
+        "Model comparison",
+        "Project overview",
+        "Data & pipeline",
+        "EDA & portfolio signals",
+        "Recommendations",
+    ],
 )
 show_project_pulse()
 st.sidebar.divider()
 st.sidebar.caption("PKDD'99 loan default classification\nPre-loan behavioral evidence")
 
-if page == "Model comparison":
+if page == "Loan review simulator":
+    simulator_page()
+elif page == "Model comparison":
     comparison_page()
-elif page == "Why the best model":
-    best_model_page()
+elif page == "Project overview":
+    overview_page()
+elif page == "Data & pipeline":
+    data_pipeline_page()
+elif page == "EDA & portfolio signals":
+    eda_page()
 else:
-    patterns_page()
+    recommendations_page()
