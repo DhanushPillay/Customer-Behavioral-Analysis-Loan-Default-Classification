@@ -117,23 +117,13 @@ The transaction table contains approximately 1.06 million records. The loan tabl
 
 ## 4. End-to-End Architecture
 
-```mermaid
-flowchart LR
-    A[Raw banking CSVs] --> B[01 preprocessing]
-    B --> C[02 feature engineering]
-    C --> D[03 exploratory analysis]
-    C --> E[04 model training and evaluation]
-    C --> F[05 customer segmentation]
-    A --> G[FP-Growth and Apriori]
-    D --> H[Figures]
-    E --> I[Metrics and model artifact]
-    F --> J[Segment profiles]
-    H --> K[Complete project findings]
-    I --> K
-    J --> K
-    G --> K
-    K --> L[Streamlit dashboard]
-```
+![Loan Default Intelligence system architecture](loan_default_system_architecture.png)
+
+The architecture is divided into data sources, the data and feature pipeline,
+analytics and training, persisted artifacts, and serving/review. The offline
+path produces reusable datasets, metrics, models, and pattern outputs. The
+Streamlit application reads those artifacts for interactive review; it does
+not retrain the model during dashboard use.
 
 The notebooks are executed in order:
 
@@ -184,6 +174,46 @@ The exploratory analysis is implemented in `03_eda.ipynb` and produces the figur
 The analysis also identifies multicollinearity among transaction volume variables. For example, deposit and withdrawal totals are highly correlated. This is why the project interprets related features together rather than treating one importance score as a causal explanation.
 
 ## 7. Classification and Evaluation
+
+### Innovation: Capacity-Aware Gradient Boosting
+
+The project evaluates a new model version rather than claiming that ordinary
+hyperparameter tuning is itself a new algorithm. The capacity-aware challenger
+extends the tuned Gradient Boosting pipeline with four domain features:
+
+- `loan_to_avg_balance`: loan amount relative to non-negative average balance.
+- `loan_to_balance_at_loan`: loan amount relative to non-negative balance at the loan date.
+- `payment_to_avg_balance`: monthly payment relative to non-negative average balance.
+- `negative_min_balance`: indicator for a negative pre-loan minimum balance.
+
+The ratio features are clipped and log-transformed to limit the effect of
+near-zero balances. The model uses the same regularized Gradient Boosting
+configuration as the headline model (`300` estimators, learning rate `0.05`,
+maximum depth `1`, and subsample `0.7`). Because defaults are the Class 1
+minority, the challenger selects its probability threshold from inner
+five-fold validation rather than assuming that `0.50` is optimal.
+
+The reproducible experiment is implemented in
+`tools/capacity_aware_model.py`. It uses 5-fold x 3 repeated outer validation
+for this nested threshold experiment; the original headline comparison keeps
+the definitive 5-fold x 10 repeated validation. Results are saved in
+`outputs/capacity_model_comparison.csv`,
+`outputs/capacity_model_fold_results.csv`, and
+`outputs/models/capacity_aware_metadata.json`.
+
+The measured result is intentionally reported as a challenger, not an
+unqualified replacement:
+
+| Model | F1 at default threshold | F1 with inner-CV threshold | Average Precision | ROC-AUC |
+|---|---:|---:|---:|---:|
+| Current tuned Gradient Boosting | 0.575 | 0.545 | 0.648 | 0.864 |
+| Capacity-aware Gradient Boosting | 0.567 | 0.567 | 0.647 | **0.868** |
+
+The capacity-aware version improves ranking separation slightly, but it does
+not improve F1 on this small sample. Therefore the current Gradient Boosting
+model remains the headline classifier, while the capacity-aware model provides
+an interpretable ranking challenger for future validation on a larger,
+more-current portfolio.
 
 Six models are compared:
 
