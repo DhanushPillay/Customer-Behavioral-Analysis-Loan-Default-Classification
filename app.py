@@ -1,4 +1,4 @@
-from ast import literal_eval
+﻿from ast import literal_eval
 from pathlib import Path
 
 import altair as alt
@@ -39,7 +39,7 @@ def styled(chart: alt.Chart, height: int = 280) -> alt.Chart:
 
 st.set_page_config(
     page_title="Loan Default Intelligence",
-    page_icon="◧",
+    page_icon="â—§",
     layout="wide",
     initial_sidebar_state="expanded",
 )
@@ -140,7 +140,7 @@ def comparison_page() -> None:
     lead = st.columns([1, 2.4])
     lead[0].metric(f"Best on {metric_label}", f"{best['model']}")
     lead[1].caption(
-        f"{best[metric_column]:.3f} ± {spread:.3f} on {setting} / {variant}. "
+        f"{best[metric_column]:.3f} Â± {spread:.3f} on {setting} / {variant}. "
         f"Average precision {best['cv_ap_mean']:.3f}, ROC-AUC {best['cv_auc_mean']:.3f}. "
         f"Margin over {runner_up['model']} is {margin:.3f}. "
         "Scores are repeated stratified 5-fold x 10 cross-validation."
@@ -176,7 +176,7 @@ def comparison_page() -> None:
         on_select="rerun",
         selection_mode="single-row",
         key="run_pick",
-        width="stretch",
+        use_container_width=True,
         hide_index=True,
     )
     picked_rows = runs.selection.rows if runs and runs.selection else []
@@ -224,7 +224,7 @@ def comparison_page() -> None:
                 x2="high:Q",
             )
         )
-        st.altair_chart(styled(alt.layer(leaderboard, whiskers), height=300), width="stretch")
+        st.altair_chart(styled(alt.layer(leaderboard, whiskers), height=300), use_container_width=True)
     with right:
         st.subheader("Does the F1 leader also rank borrowers best?")
         tuned_baseline = cv[(cv["setting"] == "baseline") & (cv["variant"] == "tuned")].copy()
@@ -253,7 +253,7 @@ def comparison_page() -> None:
             .mark_text(dy=-16, fontSize=11, color=INK, align="left")
             .encode(x="cv_f1_mean:Q", y="cv_auc_mean:Q", text="model:N")
         )
-        st.altair_chart(styled(alt.layer(dots, names), height=300), width="stretch")
+        st.altair_chart(styled(alt.layer(dots, names), height=300), use_container_width=True)
 
     with st.expander("See the held-out default-setting table"):
         st.dataframe(
@@ -271,7 +271,7 @@ def comparison_page() -> None:
             ).style.format(
                 {column: "{:.3f}" for column in ["Accuracy", "Precision", "Recall", "F1", "Average precision", "ROC-AUC"]}
             ),
-            width="stretch",
+            use_container_width=True,
             hide_index=True,
         )
 
@@ -342,7 +342,7 @@ def comparison_page() -> None:
     )
     st.altair_chart(
         styled(alt.layer(quadrant_chart, base_line), height=220),
-        width="stretch",
+        use_container_width=True,
     )
     st.caption(f"Dashed line is the portfolio default rate of {portfolio_rate:.1%}.")
     highest_risk = risk_table.iloc[0]
@@ -369,7 +369,7 @@ def best_model_page() -> None:
 
     st.info(
         f"The selected configuration is tuned {best['model']} with the unresampled baseline arm. "
-        f"It leads on repeated-CV F1 at {best['cv_f1_mean']:.3f} ± {best['cv_f1_std']:.3f}."
+        f"It leads on repeated-CV F1 at {best['cv_f1_mean']:.3f} Â± {best['cv_f1_std']:.3f}."
     )
 
     rf = tuned_baseline[tuned_baseline["model"] == "RandomForest"].iloc[0]
@@ -382,7 +382,7 @@ def best_model_page() -> None:
     )
 
     reasons = st.columns(3)
-    reasons[0].metric("F1", f"{best['cv_f1_mean']:.3f} ± {best['cv_f1_std']:.3f}")
+    reasons[0].metric("F1", f"{best['cv_f1_mean']:.3f} Â± {best['cv_f1_std']:.3f}")
     reasons[1].metric("Average precision", f"{best['cv_ap_mean']:.3f}")
     reasons[2].metric("ROC-AUC", f"{best['cv_auc_mean']:.3f}")
 
@@ -398,10 +398,10 @@ def best_model_page() -> None:
 
     figure = FIGURES / "rf_importance.png"
     if figure.exists():
-        st.image(str(figure), caption="Reference feature importance from the tuned Random Forest model.", width="stretch")
+        st.image(str(figure), caption="Reference feature importance from the tuned Random Forest model.", use_container_width=True)
 
     st.subheader("Selected model on the held-out split")
-    st.dataframe(model_metrics, width="stretch", hide_index=True)
+    st.dataframe(model_metrics, use_container_width=True, hide_index=True)
     st.caption("The held-out table is a reference check. The model selection itself uses repeated cross-validation.")
 
     with st.expander("What would change the decision?"):
@@ -409,45 +409,6 @@ def best_model_page() -> None:
             "Use a recent portfolio, nested cross-validation, and an explicit cost matrix before deployment. "
             "If ranking quality becomes more important than F1 classification, Random Forest is the natural challenger."
         )
-
-    capacity_results = load_optional_csv("capacity_model_comparison.csv")
-    if capacity_results is not None:
-        st.subheader("Experimental capacity-aware model")
-        capacity = capacity_results.set_index("model")
-        challenger_name = "Capacity-aware Gradient Boosting"
-        current_name = "Current tuned Gradient Boosting"
-        if challenger_name in capacity.index and current_name in capacity.index:
-            challenger = capacity.loc[challenger_name]
-            current = capacity.loc[current_name]
-            st.markdown(
-                "This challenger adds four financial-capacity features: loan-to-average-balance, "
-                "loan-to-balance-at-loan, payment-to-average-balance, and a negative-minimum-balance flag. "
-                "Its Class 1 threshold is selected inside inner cross-validation."
-            )
-            experiment_cards = st.columns(4)
-            experiment_cards[0].metric(
-                "Capacity F1",
-                f"{challenger['f1_tuned_mean']:.3f}",
-                f"Current {current['f1_default_mean']:.3f}",
-            )
-            experiment_cards[1].metric(
-                "Capacity ROC-AUC",
-                f"{challenger['roc_auc_mean']:.3f}",
-                f"Current {current['roc_auc_mean']:.3f}",
-            )
-            experiment_cards[2].metric(
-                "Capacity AP",
-                f"{challenger['average_precision_mean']:.3f}",
-                f"Current {current['average_precision_mean']:.3f}",
-            )
-            experiment_cards[3].metric(
-                "Selected threshold",
-                f"{challenger['median_threshold']:.2f}",
-            )
-            st.caption(
-                "Result: keep the existing Gradient Boosting model as headline by F1; "
-                "retain this capacity-aware version as a ranking challenger because it improves ROC-AUC."
-            )
 
 
 def as_item_set(value: str) -> frozenset:
@@ -508,7 +469,7 @@ def borrower_page() -> None:
     )
     left, right = st.columns([1.1, 1])
     with left:
-        st.dataframe(matrix, width="stretch")
+        st.dataframe(matrix, use_container_width=True)
         st.caption(
             f"{precision:.1%} of flagged loans really defaulted. "
             f"{recall:.1%} of the {n_default} real defaulters were caught. F1 {f1:.3f}."
@@ -566,7 +527,7 @@ def borrower_page() -> None:
         )
         st.altair_chart(
             styled(alt.layer(gap_band, lines, marker), height=300),
-            width="stretch",
+            use_container_width=True,
         )
         st.caption(
             "Shaded area is the gap between the two lines: loans flagged for review that did not default. "
@@ -610,7 +571,7 @@ def borrower_page() -> None:
         on_select="rerun",
         selection_mode="single-row",
         key="loan_pick",
-        width="stretch",
+        use_container_width=True,
         hide_index=True,
         height=320,
     )
@@ -688,7 +649,7 @@ def borrower_page() -> None:
     )
     st.altair_chart(
         styled(alt.layer(profile_chart, middle), height=460),
-        width="stretch",
+        use_container_width=True,
     )
     st.caption(
         "Coral marks a trait whose value here leans toward default, blue one that leans away. "
@@ -788,7 +749,7 @@ def patterns_page() -> None:
         )
         st.altair_chart(
             styled(alt.layer(confidence_chart, base_rule, threshold_rule), height=320),
-            width="stretch",
+            use_container_width=True,
         )
         st.caption(
             f"The strongest candidate reaches {best_confidence:.3f} confidence against a 0.40 "
@@ -802,7 +763,7 @@ def patterns_page() -> None:
     st.subheader("Most frequent patterns")
     st.dataframe(
         itemsets[["method", "items", "support"]].sort_values("support", ascending=False).head(20),
-        width="stretch",
+        use_container_width=True,
         hide_index=True,
     )
 
@@ -815,7 +776,7 @@ def patterns_page() -> None:
     else:
         st.dataframe(
             rules[["method", "if_behavior", "support", "confidence", "lift"]].sort_values("lift", ascending=False),
-            width="stretch",
+            use_container_width=True,
             hide_index=True,
         )
 
