@@ -56,13 +56,7 @@ Default hyperparameters on the held-out 171-row test set (`outputs/metrics_compa
 
 ### 8. Project Report and Presentation
 - [x] Complete the `Jury2_Report.md` document with the findings from all steps above.
-- [x] Create a presentation (or prepare to present the Jupyter Notebooks/Report). See `docs/Jury2_Presentation.md`.
-
-### Supplemental Pattern Mining Coverage (Unit III)
-- [x] Include an implemented pattern-mining / association-rules component using pre-loan transactions to show frequent behavioral co-occurrences (`tools/pattern_mining.py`).
-- [x] Document the rationale for Apriori and FP-Growth as rule-discovery methods for market-basket style behavioral patterns.
-- [x] Link the pattern-mining discussion to the downstream classification task, rather than treating it as a separate project goal.
-- [x] Compare behavioral, loan-term, and demographic attribute groups under repeated cross-validation (`tools/feature_group_analysis.py`).
+- [ ] Create a presentation (or prepare to present the Jupyter Notebooks/Report).
 
 ---
 
