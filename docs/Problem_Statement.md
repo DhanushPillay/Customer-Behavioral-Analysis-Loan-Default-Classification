@@ -27,7 +27,6 @@ Banks lose money when loans default, and the information that predicts default i
 - Hyperparameter Tuning (randomized search)
 - Feature Importance
 - Clustering (KMeans) for customer segmentation
-- Association-rule mining (Apriori and FP-Growth) on pre-loan account baskets
 
 ---
 
@@ -45,6 +44,7 @@ Each item below is the "Common Deliverables" list from the jury guidelines, mapp
 | 6 | Performance comparison using evaluation metrics | `outputs/metrics_comparison.csv`, `tuning_results.csv`, `cv_comparison.csv`, `confusion_matrices.png`, `roc_curves.png`, `pr_curves.png`, `cv_selection.png`; `Jury2_Report.md` section 6 |
 | 7 | Conclusions and recommendations | `Jury2_Report.md` section 7; `SYNOPSIS.md` |
 | 8 | Project report and presentation | `Jury2_Report.md` (this repository) and the executed notebooks |
+| 9 | Association rule mining (Apriori, FP-Growth) | `tools/pattern_mining.py`; `outputs/pattern_itemsets.csv`, `pattern_rules.csv`; `Jury2_Report.md` section 6.1; app page 4 |
 
 ## Headline Result
 
@@ -52,4 +52,4 @@ Tuned Gradient Boosting on the unresampled data is the selected model, at repeat
 
 ## Scope Note
 
-Association Rule Mining is implemented as a supplementary Unit III analysis in `tools/pattern_mining.py`. It uses only transactions before each account's first loan and writes `outputs/pattern_itemsets.csv` and `outputs/pattern_rules.csv`. The primary objective remains loan-default classification.
+The jury guidelines place Association Rule Mining (Apriori, FP-Growth) in Unit III. The core of this project is the Unit IV classification and prediction work, with the Unit III data preprocessing, feature engineering, EDA, and visualization outcomes covered in full. A supplementary pattern-mining step is included in `tools/pattern_mining.py` and reported in section 6.1; it is not used to select or tune the classifier.

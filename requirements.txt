@@ -6,5 +6,7 @@ seaborn==0.13.2
 jupyter==1.1.1
 nbconvert==7.17.1
 imbalanced-learn==0.14.2
+streamlit==1.52.1
 mlxtend==0.23.4
-streamlit==1.45.1
+snowflake-connector-python[pandas]==4.7.5
+cachetools>=4.0,<7
