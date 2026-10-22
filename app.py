@@ -410,6 +410,45 @@ def best_model_page() -> None:
             "If ranking quality becomes more important than F1 classification, Random Forest is the natural challenger."
         )
 
+    capacity_results = load_optional_csv("capacity_model_comparison.csv")
+    if capacity_results is not None:
+        st.subheader("Experimental capacity-aware model")
+        capacity = capacity_results.set_index("model")
+        challenger_name = "Capacity-aware Gradient Boosting"
+        current_name = "Current tuned Gradient Boosting"
+        if challenger_name in capacity.index and current_name in capacity.index:
+            challenger = capacity.loc[challenger_name]
+            current = capacity.loc[current_name]
+            st.markdown(
+                "This challenger adds four financial-capacity features: loan-to-average-balance, "
+                "loan-to-balance-at-loan, payment-to-average-balance, and a negative-minimum-balance flag. "
+                "Its Class 1 threshold is selected inside inner cross-validation."
+            )
+            experiment_cards = st.columns(4)
+            experiment_cards[0].metric(
+                "Capacity F1",
+                f"{challenger['f1_tuned_mean']:.3f}",
+                f"Current {current['f1_default_mean']:.3f}",
+            )
+            experiment_cards[1].metric(
+                "Capacity ROC-AUC",
+                f"{challenger['roc_auc_mean']:.3f}",
+                f"Current {current['roc_auc_mean']:.3f}",
+            )
+            experiment_cards[2].metric(
+                "Capacity AP",
+                f"{challenger['average_precision_mean']:.3f}",
+                f"Current {current['average_precision_mean']:.3f}",
+            )
+            experiment_cards[3].metric(
+                "Selected threshold",
+                f"{challenger['median_threshold']:.2f}",
+            )
+            st.caption(
+                "Result: keep the existing Gradient Boosting model as headline by F1; "
+                "retain this capacity-aware version as a ranking challenger because it improves ROC-AUC."
+            )
+
 
 def as_item_set(value: str) -> frozenset:
     """mlxtend writes itemsets as frozenset({...}), which literal_eval alone will not read."""

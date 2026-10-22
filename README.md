@@ -5,6 +5,18 @@ This repository folder contains the code, data, and documentation for the Jury 2
 
 The project applies machine learning algorithms to the PKDD'99 Financial Dataset to classify and predict **Loan Default Risk** based on customer transaction behavior.
 
+The project also includes an experimental capacity-aware Gradient Boosting
+version. It adds loan-to-balance and payment-to-balance features, tunes the
+Class 1 decision threshold inside validation, and compares the result with the
+current headline model:
+
+```bash
+python tools/capacity_aware_model.py
+```
+
+The experiment is saved under `outputs/capacity_model_comparison.csv` and does
+not replace the current headline model automatically.
+
 ## Pipeline
 
 ```mermaid
