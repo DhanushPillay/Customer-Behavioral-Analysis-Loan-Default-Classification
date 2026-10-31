@@ -364,6 +364,130 @@ def patterns_page() -> None:
         )
 
 
+def validation_page() -> None:
+    metrics = load_csv("metrics_comparison.csv")
+    cv = load_csv("cv_comparison.csv")
+
+    show_header(
+        "07 / Validation test",
+        "Evidence beyond one lucky split",
+        "The project keeps a held-out test check, then uses repeated stratified validation for model selection.",
+    )
+
+    cards = st.columns(4)
+    cards[0].metric("Training rows", "511")
+    cards[1].metric("Held-out rows", "171")
+    cards[2].metric("Held-out defaults", "19")
+    cards[3].metric("Repeated estimates", "50")
+
+    st.subheader("Validation design")
+    st.markdown(
+        """
+        1. A stratified 75/25 split creates training and held-out test sets.
+        2. Hyperparameters are searched on training data with inner 5-fold CV.
+        3. Every configuration is compared with repeated stratified 5-fold × 10 CV.
+        4. F1, Average Precision, and ROC-AUC are reported because defaults are the minority class.
+        """
+    )
+    st.info(
+        "The held-out table is a reference check. The final headline model is selected from repeated cross-validation, not from one test split."
+    )
+
+    st.subheader("Held-out test results")
+    st.dataframe(
+        metrics[
+            ["model", "setting", "accuracy", "precision", "recall", "f1", "average_precision", "roc_auc"]
+        ].style.format(
+            {
+                column: "{:.3f}"
+                for column in ["accuracy", "precision", "recall", "f1", "average_precision", "roc_auc"]
+            }
+        ),
+        use_container_width=True,
+        hide_index=True,
+    )
+
+    st.subheader("Repeated cross-validation selection table")
+    st.dataframe(
+        cv[
+            [
+                "model",
+                "setting",
+                "variant",
+                "cv_f1_mean",
+                "cv_f1_std",
+                "cv_ap_mean",
+                "cv_auc_mean",
+            ]
+        ]
+        .sort_values("cv_f1_mean", ascending=False)
+        .style.format(
+            {
+                column: "{:.3f}"
+                for column in ["cv_f1_mean", "cv_f1_std", "cv_ap_mean", "cv_auc_mean"]
+            }
+        ),
+        use_container_width=True,
+        hide_index=True,
+    )
+
+    figure = FIGURES / "cv_selection.png"
+    if figure.exists():
+        st.image(str(figure), caption="Repeated-CV F1 comparison used for model selection.", use_container_width=True)
+
+
+def innovation_page() -> None:
+    results = load_optional_csv("capacity_model_comparison.csv")
+    show_header(
+        "08 / Model innovation",
+        "Capacity-Aware Threshold-Calibrated Gradient Boosting",
+        "A dataset-specific challenger that adds financial-capacity features and calibrates the default decision threshold.",
+    )
+    st.markdown(
+        """
+        **What changed?** The original tuned Gradient Boosting model is extended
+        with four pre-loan features: loan-to-average-balance, loan-to-balance at
+        the loan date, payment-to-average-balance, and a negative minimum-balance
+        indicator. Ratio features use non-negative balances, clipping, and
+        `log1p` transformation to reduce the effect of extreme near-zero values.
+
+        **How is it calibrated?** An inner five-fold validation searches
+        probability thresholds from 0.20 to 0.70 and selects the threshold that
+        maximizes Class 1 F1, rather than assuming that 0.50 is optimal.
+        """
+    )
+    if results is None:
+        st.warning("Innovation results are not available yet.")
+        st.code("python tools/capacity_aware_model.py", language="powershell")
+        return
+
+    comparison = results.set_index("model")
+    current = comparison.loc["Current tuned Gradient Boosting"]
+    challenger = comparison.loc["Capacity-aware Gradient Boosting"]
+    cards = st.columns(4)
+    cards[0].metric("Innovation F1", f"{challenger['f1_tuned_mean']:.3f}", f"Current {current['f1_default_mean']:.3f}")
+    cards[1].metric("Innovation ROC-AUC", f"{challenger['roc_auc_mean']:.3f}", f"Current {current['roc_auc_mean']:.3f}")
+    cards[2].metric("Average precision", f"{challenger['average_precision_mean']:.3f}", f"Current {current['average_precision_mean']:.3f}")
+    cards[3].metric("Selected threshold", f"{challenger['median_threshold']:.2f}")
+    st.info(
+        "Result: the innovation improves ROC-AUC slightly but does not beat the current model on F1. "
+        "It is therefore retained as an interpretable challenger, not presented as an unqualified replacement."
+    )
+    st.subheader("Measured comparison")
+    st.dataframe(
+        results.style.format(
+            {
+                column: "{:.3f}"
+                for column in results.columns
+                if column not in {"model", "median_threshold"}
+            }
+            | {"median_threshold": "{:.2f}"}
+        ),
+        use_container_width=True,
+        hide_index=True,
+    )
+
+
 def overview_page() -> None:
     features = load_features()
     defaults = int(features["target"].sum())
@@ -468,7 +592,8 @@ def simulator_page() -> None:
     with right:
         min_balance = st.number_input("Minimum observed balance", min_value=0.0, value=float(features["min_balance"].median()), step=500.0)
         txn_rate = st.number_input("Transactions per month", min_value=0.0, value=float(features["txn_per_month"].median()), step=0.5)
-        review_cutoff = st.slider("Manual-review cutoff", 0.10, 0.90, 0.45, 0.05)
+        review_cutoff = st.slider("Class 1 / manual-review cutoff", 0.01, 0.90, 0.45, 0.01)
+        st.caption("If the risk score is at or above this percentage, the result becomes Class 1 — Default risk.")
     amount_pressure = amount / max(float(features["amount"].median()), 1.0)
     balance_strength = balance / max(float(features["balance_at_loan"].median()), 1.0)
     min_balance_strength = min_balance / max(float(features["min_balance"].median()), 1.0)
@@ -477,14 +602,30 @@ def simulator_page() -> None:
     risk_score = 0.11 + 0.10 * (amount_pressure - 1) + 0.14 * (duration_pressure - 1) - 0.10 * (balance_strength - 1) - 0.08 * (min_balance_strength - 1) - 0.03 * (activity_support - 1)
     risk_score = max(0.01, min(0.95, risk_score))
     decision = "Manual review" if risk_score >= review_cutoff else "Standard review"
+    predicted_class = 1 if risk_score >= review_cutoff else 0
+    risk_label = "At/above review threshold" if predicted_class == 1 else "Below review threshold"
+    class_label = "Class 1 — Default-risk signal" if predicted_class == 1 else "Class 0 — Below threshold"
+    recommendation = "Send to a credit officer for manual review" if predicted_class == 1 else "Continue with standard checks; do not auto-approve"
     expected_loss = amount * risk_score
-    st.subheader("Scenario result")
+    st.subheader("Simple decision")
     cards = st.columns(4)
-    cards[0].metric("Estimated risk index", f"{risk_score:.1%}")
-    cards[1].metric("Workflow", decision)
-    cards[2].metric("Exposure if defaulted", f"{amount:,.0f}")
-    cards[3].metric("Expected loss proxy", f"{expected_loss:,.0f}")
+    cards[0].metric("Risk level", risk_label)
+    cards[1].metric("Recommended action", recommendation)
+    cards[2].metric("Model class", class_label)
+    cards[3].metric("Risk score", f"{risk_score:.1%}")
+    exposure_cards = st.columns(2)
+    exposure_cards[0].metric("Exposure if defaulted", f"{amount:,.0f}")
+    exposure_cards[1].metric("Expected loss proxy", f"{expected_loss:,.0f}")
     st.progress(risk_score, text=f"Risk index: {risk_score:.1%}")
+    st.info(
+        f"**Decision support only:** {recommendation}. The scenario risk index is **{risk_score:.1%}**, "
+        f"which is {'at or above' if predicted_class else 'below'} the **{review_cutoff:.0%} "
+        f"review threshold**. Therefore, the result is **{class_label}** ({risk_label}). "
+        f"To flag this scenario as Class 1, set the cutoff to **{risk_score:.1%}** or lower. "
+        "This index is a transparent scenario estimate, not a calibrated probability "
+        "or an automatic approval/rejection. Complete affordability, identity, and "
+        "fair-lending checks first."
+    )
     rationale = []
     if balance < features["balance_at_loan"].median():
         rationale.append("available balance is below the portfolio median")
@@ -519,6 +660,9 @@ page = st.sidebar.radio(
         "Project overview",
         "Data & pipeline",
         "EDA & portfolio signals",
+        "FP-Growth & patterns",
+        "Validation test",
+        "Model innovation",
         "Recommendations",
     ],
 )
@@ -536,5 +680,11 @@ elif page == "Data & pipeline":
     data_pipeline_page()
 elif page == "EDA & portfolio signals":
     eda_page()
+elif page == "FP-Growth & patterns":
+    patterns_page()
+elif page == "Validation test":
+    validation_page()
+elif page == "Model innovation":
+    innovation_page()
 else:
     recommendations_page()
