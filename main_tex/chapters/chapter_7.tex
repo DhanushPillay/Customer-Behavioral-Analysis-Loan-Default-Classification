@@ -1,0 +1,108 @@
+% Chapter 7
+\chapter{Results, Conclusions and Future Scope}
+\label{ch:conclusion}
+
+This chapter brings the analysis together. It states which model was selected, what the model and the exploratory work say about default risk, what a credit team could reasonably do with the results, and what remains before the prototype could be used on live loans.
+
+\section{Summary of Results}
+\label{sec:results-summary}
+
+The project built a loan-level feature table from the PKDD'99 data and compared six classifiers under a baseline and a SMOTE arm. The selected configuration is Gradient Boosting without resampling, tuned with a shallow ensemble of 300 stumps, a learning rate of 0.05, and 70\% subsampling. Under repeated stratified five-fold cross-validation with ten repeats, it reaches a mean F1 of 0.571 with a standard deviation of 0.120, an average precision of 0.654, and a ROC-AUC of 0.864.
+
+Random Forest is close enough to deserve equal mention. Its tuned baseline reaches an F1 of 0.556, an average precision of 0.661, and a ROC-AUC of 0.877. The F1 difference is 0.015 against a fold-to-fold spread of about 0.11, so the two models are statistically indistinguishable on that metric. Gradient Boosting was selected because F1 was the criterion fixed before the comparison; Random Forest is the better ranker and a credible alternative if the review queue is judged by average precision.
+
+\begin{table}[H]
+    \centering
+    \caption{The two strongest configurations under repeated cross-validation.}
+    \label{tab:final-models}
+    \begin{tabular}{@{}lrrrl@{}}
+        \toprule
+        \textbf{Model} & \textbf{F1} & \textbf{AP} & \textbf{AUC} & \textbf{Role} \\
+        \midrule
+        Gradient Boosting (baseline) & 0.571 $\pm$ 0.120 & 0.654 & 0.864 & Selected by the pre-specified F1 criterion. \\
+        Random Forest (baseline) & 0.556 $\pm$ 0.112 & 0.661 & 0.877 & Best ranking metrics; close alternative. \\
+        \bottomrule
+    \end{tabular}
+\end{table}
+
+The held-out test table tells a consistent but noisier story. With default hyperparameters, Random Forest has the highest test F1 (0.519) and Gradient Boosting the highest average precision (0.583). The test set has only 19 defaults, so those differences are descriptive rather than decisive. The repeated cross-validation table is the stronger evidence because it averages 50 estimates.
+
+\section{Key Risk Signals}
+\label{sec:key-signals}
+
+Three signals recur across the analysis.
+
+\begin{enumerate}
+    \item \textbf{Balance capacity.} \texttt{min\_balance} and \texttt{balance\_at\_loan} are the two most important features in the tuned Random Forest, at 0.261 and 0.116. Defaulted borrowers were more likely to have a low balance before the loan and to have touched a negative balance at some point. The exploratory medians point in the same direction: a balance at the loan date of about 22,000 for defaults against 39,500 for good loans.
+    \item \textbf{Loan burden relative to balance.} Loan amount and monthly payment are positively associated with default, and the combination matters more than either variable alone. Loans in the low-balance, high-amount quadrant default at 23.3\%, compared with 4.9\% in the high-balance, low-amount quadrant.
+    \item \textbf{Activity is secondary.} Transaction frequency and volume carry some signal, but they do not separate the classes cleanly. The busier segment defaults at 9.2\% and the quieter segment at 12.4\%, a modest gap. Activity is useful context, not a primary screen.
+\end{enumerate}
+
+Age and gender are close to noise in this dataset. Their correlations with the target are 0.01 and 0.02, their importance scores are 0.025 and 0.005, and the age distribution shows no high-risk band. The report does not recommend using either variable in a lending rule.
+
+The association rule mining adds one sharp but narrow finding: all 27 accounts that ever had a negative pre-loan balance defaulted. That is a 100\% confidence rule with a lift of 8.97, covering 35.5\% of defaults. It is based on 27 cases, so it should be treated as a hypothesis for a larger sample, not as a policy. The second rule, cash withdrawal activity, has a lift of only 1.17 and is not actionable.
+
+\section{Innovation Added to the Classification Algorithm}
+\label{sec:innovation}
+
+The innovation is a hybrid classification framework: a supervised classifier ranks loans, association rules provide a separate high-precision audit layer, and customer segments provide portfolio context. The estimator itself is standard. The contribution is in how the classifier is represented, validated, and combined with interpretable rules, where four choices distinguish the project from a standard train-and-report exercise.
+
+\begin{enumerate}
+    \item \textbf{Pre-loan behavioural representation.} The 13 behavioural features are computed only from transactions dated strictly before the loan grant date. The representation includes the balance at the loan date, the minimum balance over the observed history, and the length of that history. This turns a raw transaction log into a decision-time profile and closes the most common leakage path in account-level credit models.
+    \item \textbf{Loan burden relative to balance.} Loan amount and monthly payment are read against the pre-loan balance. The resulting quadrant separates a 23.3\% default rate in the low-balance, high-amount cell from 4.9\% in the opposite cell. The interaction is both a model input and a transparent explanation for a reviewer.
+    \item \textbf{Two-arm imbalance validation.} Every classifier is trained on the natural distribution and on a SMOTE-balanced copy, then compared with 50 repeated cross-validation estimates. The result is negative for the common assumption that resampling always helps: SMOTE lowers F1 for five of the six tuned configurations. Testing that assumption, rather than adopting it by default, is part of the contribution.
+    \item \textbf{Rule-plus-model review layer.} The classifier ranks the portfolio, while association rule mining provides a separate high-precision audit signal. All 27 accounts with a negative pre-loan balance defaulted, a rule with 100\% confidence and lift 8.97. The rule is shown beside the model score rather than blended into it, so a reviewer can see a simple reason for a flag. KMeans segments add portfolio context without using the target.
+\end{enumerate}
+
+The result is a reproducible, leakage-controlled pipeline that combines a classifier with interpretable rules and a review interface. The innovation is a workflow for this dataset, not a claim of algorithmic novelty.
+
+\section{Business Recommendations}
+\label{sec:recommendations}
+
+The results support a review-oriented workflow rather than an automated decision.
+
+\begin{enumerate}
+    \item \textbf{Rank the queue; do not automate the decision.} The model is good at putting likely defaults near the top of a list, but its precision at useful recall is far from certain. A human reviewer should see the score, the balance history, and the loan terms together.
+    \item \textbf{Use a balance-capacity check as an interpretable first pass.} A simple rule that flags loans with \texttt{balance\_at\_loan} below 20,000 identifies 97 of 682 loans (14.2\%), catches 34 of 76 defaults (44.7\%), and has a precision of 35.1\% against an 11.1\% base rate. It is not a substitute for the model, but it is a useful audit check and an explanation for reviewers who want a transparent reason for the flag.
+    \item \textbf{Prioritise the low-balance, high-amount quadrant.} The 23.3\% default rate in that cell is more than twice the portfolio average. A reviewer working through a long queue should start there, then use the model score to order the rest.
+    \item \textbf{Do not build rules on age or gender.} The data does not support them as risk drivers, and using them would create fairness and regulatory exposure for no measurable gain.
+    \item \textbf{Do not treat SMOTE as a default remedy.} It helped KNN and raised recall in some arms, but it lowered F1 for five of the six tuned configurations. A cost-sensitive threshold or class weights are better first experiments for this dataset.
+    \item \textbf{Calibrate before setting a cost-based cutoff.} The current scores rank loans but are not calibrated probabilities. If the bank wants to compare the expected cost of a default with the expected profit of a good loan, it needs a calibration step and a threshold chosen from those costs.
+    \item \textbf{Revalidate on recent data and monitor drift.} The dataset covers 1993 to 1998. Borrower behaviour, interest rates, and data collection have changed. A model trained on this period should be treated as a methodological prototype, not as a production scorecard.
+\end{enumerate}
+
+\section{Limitations}
+\label{sec:limitations}
+
+The limitations fall into four groups.
+
+\textbf{Sample size.} There are only 76 defaults. The test partition contains 19. A single split can move recall by more than five percentage points when one loan changes side, and the cross-validation standard deviations are around 0.10 to 0.13. The reported means are estimates with wide uncertainty, not precise performance guarantees.
+
+\textbf{Evaluation optimism.} The tuned cross-validation means reuse the same folds for hyperparameter selection and reporting. This makes them mildly optimistic. A nested cross-validation, where the tuning is repeated inside each outer fold, would give a cleaner estimate of the full modelling procedure.
+
+\textbf{Data coverage.} The features describe account transactions, loan terms, age, and gender. They do not include income, employment, collateral, or credit bureau history, which are central to real credit assessment. The transaction history is left-censored for early loans, and the dataset is from a single Czech bank in the 1990s. District was retained for profiling but excluded from the model matrix, so regional effects are not modelled.
+
+\textbf{Interpretation.} Feature importance from a tree ensemble is not a causal effect. Correlated features share credit, and the near-duplicate cash-flow pair makes individual rankings unstable. The negative-balance rule is based on 27 accounts and has a wide confidence interval. The Streamlit review queue uses out-of-fold scores for retrospective analysis; it is not a live scoring service.
+
+\section{Future Scope}
+\label{sec:future-scope}
+
+The natural next steps follow from the limitations.
+
+\begin{itemize}
+    \item \textbf{Nested cross-validation and repeated holdout.} Estimate the tuning procedure itself, not only the tuned model, and report uncertainty intervals around the selected model's F1 and AP.
+    \item \textbf{Cost-sensitive learning.} Replace the symmetric F1 objective with a cost matrix that reflects the actual loss from a missed default and the cost of reviewing a good customer. This would connect the model to the bank's economics.
+    \item \textbf{Probability calibration.} Fit Platt scaling or isotonic regression on a held-out fold, check the calibration curve, and only then use probability thresholds in a decision rule.
+    \item \textbf{Model explanation.} Add SHAP values or permutation importance to show which features drive an individual score. This would help reviewers trust or challenge a flag.
+    \item \textbf{Richer data.} Add income, employment, collateral, and credit bureau records if they are available. Even within the PKDD'99 schema, the transaction categories and counterparty fields could support more detailed behavioural features.
+    \item \textbf{Temporal validation.} Train on earlier loans and test on later ones to measure how the model degrades as borrower behaviour changes. This is a better proxy for deployment than a random split.
+    \item \textbf{Deployment and monitoring.} Put the feature pipeline and model behind a versioned service, log inputs and decisions, monitor score distributions and default rates, and define a retraining schedule. The current Streamlit console is a presentation layer, not a production system.
+    \item \textbf{Fairness and governance.} Audit performance across protected groups, document the intended use, and define the human review and appeal process before any live use.
+\end{itemize}
+
+\section{Conclusion}
+\label{sec:conclusion}
+
+The project asked whether pre-loan account behaviour can improve the identification of loans that will run into difficulty. The answer is a qualified yes. A compact set of 18 features, dominated by balance history and loan burden, supports a Gradient Boosting model with a cross-validated F1 of 0.571 and an average precision of 0.654, roughly six times the 11.14\% base rate. The same features produce simple, interpretable signals: a low balance at the loan date, a large loan relative to that balance, and a history that has touched a negative balance.
+
+The qualified part matters. The default class has only 76 examples, the test set has 19, and the top two models are separated by less than the fold-to-fold noise. SMOTE did not deliver the improvement that is often assumed, and the demographic variables contributed almost nothing. The honest conclusion is that the model is a useful ranking and review tool on this dataset, not an autonomous credit decision system. Its value lies as much in the discipline of the pipeline, the leakage controls, and the transparent evaluation as in the final score. Those practices, rather than any single accuracy figure, are what the project contributes to a real credit-risk workflow.

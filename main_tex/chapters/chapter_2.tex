@@ -1,0 +1,78 @@
+\chapter{Literature Review and Background}
+\label{ch:literature}
+
+\section{The PKDD'99 Financial Dataset}
+\label{sec:dataset}
+This project uses the \textbf{PKDD'99 Financial Dataset}, also known as the Berka Dataset, released for the Discovery Challenge at the 1999 European Conference on Principles and Practice of Knowledge Discovery in Databases. It contains anonymized real-world records from a Czech bank covering 1993 to 1998.
+
+The raw data is highly normalized and spread across eight tables. Five are used here. Table~\ref{tab:pkdd_tables} summarizes them.
+
+\begin{table}[H]
+    \centering
+    \small
+    \renewcommand{\arraystretch}{1.25}
+    \begin{tabularx}{\textwidth}{|l|r|>{\raggedright\arraybackslash}X|}
+        \hline
+        \textbf{Table} & \textbf{Rows} & \textbf{Role in this project} \\
+        \hline
+        \texttt{loan.csv} & 682 & One row per granted loan: account, grant date, amount, duration, installment, and status code. Source of the target. \\
+        \hline
+        \texttt{trans.csv} & 1,056,320 & One row per account transaction, 1993-01-01 to 1998-12-31. Source of all behavioral features. \\
+        \hline
+        \texttt{client.csv} & 5,369 & Client identifier, birth number (encodes date of birth and gender), and district. Source of age and gender. \\
+        \hline
+        \texttt{account.csv} & 4,500 & Account identifier, district, statement frequency, and creation date. Used for provenance. \\
+        \hline
+        \texttt{disp.csv} & 5,369 & Links clients to accounts as OWNER or DISPONENT. Only OWNER links are used, so every loan maps to one client. \\
+        \hline
+    \end{tabularx}
+    \caption{PKDD'99 tables used in the project}
+    \label{tab:pkdd_tables}
+\end{table}
+
+The dataset is a standard benchmark for relational data mining because it combines long transaction histories with a small, well-defined loan outcome. This project reads the raw CSV extracts directly. No warehouse, BI tool, or external database is part of the pipeline.
+
+\section{Classification Algorithms}
+Six supervised learners are compared. They were chosen to cover different inductive biases rather than to maximize the leaderboard.
+
+\subsection{Decision Tree}
+A decision tree partitions the feature space with axis-aligned splits chosen to reduce impurity. It captures non-linear interactions, is easy to explain, and serves as an interpretable baseline. Its main weakness is variance: small changes in the training data can change the tree structure. The search in this project tunes maximum depth, minimum samples per leaf, and the splitting criterion.
+
+\subsection{Naive Bayes}
+Gaussian Naive Bayes models each feature as a normal distribution conditional on the class and assumes conditional independence. It is fast and needs very little data, but the independence assumption is clearly violated here because balance and volume features are correlated. It is included as a probabilistic baseline, not as a candidate for deployment.
+
+\subsection{Random Forest}
+Random Forest [9] averages many decorrelated decision trees, each grown on a bootstrap sample with a random subset of features at every split. The averaging reduces variance and the out-of-bag behaviour gives a stable impurity-based importance ranking. It is typically strong on small tabular problems and is the reference model for feature importance in this report.
+
+\subsection{Support Vector Machine}
+An SVM finds a maximum-margin separating hyperplane, using the kernel trick to represent non-linear boundaries. With 682 rows and 18 features it is computationally comfortable. Because the ROC and precision--recall curves need probability estimates, the SVM is wrapped in \texttt{CalibratedClassifierCV} with a sigmoid calibration and cross-validated calibration folds.
+
+\subsection{K-Nearest Neighbors}
+KNN classifies a point by the majority label among its $k$ nearest training neighbours. It makes no global assumption about the decision boundary and provides a distance-based sanity check. It is sensitive to feature scaling, which is why the scaler is part of the pipeline, and it usually struggles when the positive class is rare.
+
+\subsection{Gradient Boosting}
+Gradient Boosting [10] fits shallow trees sequentially, each new tree correcting the residual errors of the current ensemble. With a low learning rate and subsampling it often outperforms a single tree and a random forest on structured tabular data. The search tunes the number of estimators, depth, learning rate, and subsample fraction.
+
+\section{Class Imbalance and SMOTE}
+The target is imbalanced at roughly 9:1. A classifier optimized for accuracy will usually predict the majority class and ignore defaulters. Two responses are common: cost-sensitive learning and resampling. This project uses SMOTE [8] as the resampling arm, because it is the standard oversampling method and is easy to place inside a scikit-learn pipeline.
+
+SMOTE generates synthetic minority examples by interpolating between a minority point and its nearest minority neighbours. It increases the minority region rather than duplicating points, which reduces the risk of exact overfitting. The comparison in this report is deliberately two-armed: every classifier is trained once on the raw training data and once on a SMOTE-balanced copy, with all resampling fitted inside the training fold only. As Chapter 6 shows, the balanced arm does not help the stronger models, a result that only repeated validation made visible.
+
+\section{Evaluation Metrics under Imbalance}
+Accuracy is reported but never used for selection. The primary metrics are:
+
+\begin{itemize}
+    \item \textbf{Precision:} of the loans flagged as default, the fraction that actually defaulted.
+    \item \textbf{Recall:} of the loans that actually defaulted, the fraction that were flagged.
+    \item \textbf{F1-score:} the harmonic mean of precision and recall, used as the selection criterion.
+    \item \textbf{Average Precision (AP):} the area under the precision--recall curve, which summarizes ranking quality for the positive class.
+    \item \textbf{ROC-AUC:} the probability that a random defaulter is ranked above a random repayer.
+\end{itemize}
+
+ROC-AUC can look flattering when the positive class is rare, because a large number of true negatives inflates the false-positive-rate denominator. Average Precision does not have that property, so both are reported. The comparison also uses a confusion matrix per configuration so that the trade-off between missed defaults and false alarms stays visible.
+
+\section{Model Selection and Cross-Validation}
+A single 75/25 split leaves about 19 defaults in the test set. At that size, the ranking of twelve configurations is dominated by split noise. The project therefore separates three questions: a readable held-out table at default hyperparameters, a hyperparameter search on the training split, and a repeated stratified cross-validation over all configurations. The final choice uses the repeated 5-fold $\times$ 10 protocol, which yields 50 estimates per configuration and makes the fold-to-fold spread explicit. This follows the standard CRISP-DM emphasis on evaluation as an iterative, evidence-based stage rather than a single number [11].
+
+\section{Related Work and Positioning}
+The Berka dataset has been used for loan-default prediction, customer segmentation, and relational feature construction. Much of the published work either uses post-loan information, which is unavailable at decision time, or reports a single train--test split on a small positive class. This project is positioned differently in three ways: the feature set is strictly pre-loan, the comparison includes a balanced and an unbalanced arm for every model, and model selection rests on repeated cross-validation with the uncertainty reported. The association rule mining step is included as a descriptive complement, not as a competitor to the classifiers.

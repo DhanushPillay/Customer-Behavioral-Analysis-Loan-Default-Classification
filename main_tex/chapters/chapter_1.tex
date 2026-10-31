@@ -1,0 +1,103 @@
+\chapter{Introduction}
+
+\section{Problem Definition}
+Banking institutions sit on large volumes of operational data: account histories, transactions, demographics, and loan records. The information that predicts whether a borrower will repay a loan is usually already present in that history before the loan is granted, but it is buried in millions of individual transactions and is not directly usable by a credit officer.
+
+This project addresses the resulting decision problem as a supervised binary classification task. Given a loan application and the applicant's pre-loan transaction history, the system estimates whether the loan will be repaid (a \emph{good} loan) or will default (a \emph{bad} loan). The task is performed on the PKDD'99 Financial Dataset, which contains 682 loans and roughly one million account transactions from a Czech bank between 1993 and 1998. Of the 682 loans, 606 were repaid and 76 defaulted, giving a base default rate of 11.14 percent.
+
+The central constraint is temporal: every behavioral feature is computed only from transactions dated strictly before the loan grant date. Post-loan activity is never used, so the model reproduces what the bank could have known at decision time rather than what it learned afterwards.
+
+\section{Motivation and Business Context}
+Loan defaults are direct losses, while rejected good customers are opportunity costs. A model that separates the two groups well allows the bank to route applications into a review queue, ask for additional collateral, or adjust the offered amount. The cost of the two error types is not symmetric: approving a future defaulter is usually more expensive than reviewing a good customer twice.
+
+The dataset is also strongly imbalanced. With only 11.14 percent positives, a trivial classifier that predicts ``repaid'' for every application reaches 88.86 percent accuracy while catching zero defaulters. Accuracy is therefore not a useful headline metric here, and the evaluation has to focus on the positive class: precision, recall, F1-score, Average Precision, and ROC-AUC. This project treats that methodological point as part of the problem, not as an afterthought.
+
+\section{Project Objectives}
+The project covers the complete data mining pipeline required by Units III and IV of the syllabus. Its objectives are:
+
+\begin{enumerate}
+    \item To clean and integrate the raw PKDD'99 tables into a single loan-level analytical dataset.
+    \item To engineer behavioral features from pre-loan transactions only, and to verify that no post-loan information leaks into the feature set.
+    \item To perform exploratory data analysis and visualize the behavioral differences between repaid and defaulted loans.
+    \item To train and compare six classification algorithms: Decision Tree, Naive Bayes, Random Forest, Support Vector Machine (SVM), K-Nearest Neighbors (KNN), and Gradient Boosting.
+    \item To handle class imbalance explicitly by training each classifier twice, once on the raw data and once on a SMOTE-balanced training set.
+    \item To tune hyperparameters and select the final model using repeated stratified cross-validation rather than a single train--test split.
+    \item To interpret the selected model through feature importance and association rule mining, and to translate the findings into business recommendations.
+\end{enumerate}
+
+\section{Scope and Deliverables}
+The project scope is limited to binary loan-default classification on historical data. It does not include live scoring, credit-policy design, or causal analysis. The supplementary components are customer segmentation with KMeans, association rule mining with Apriori and FP-Growth, and a Streamlit decision-support console that reads the exported result files.
+
+Table~\ref{tab:deliverables} maps each expected deliverable to the artifact that implements it.
+
+\begin{table}[H]
+    \centering
+    \small
+    \renewcommand{\arraystretch}{1.25}
+    \begin{tabularx}{\textwidth}{|>{\raggedright\arraybackslash}p{4.6cm}|>{\raggedright\arraybackslash}X|}
+        \hline
+        \textbf{Deliverable} & \textbf{Where it is implemented} \\
+        \hline
+        Problem definition and objectives & This chapter and \texttt{docs/Problem\_Statement.md} \\
+        \hline
+        Dataset description and source & Chapter 2; raw CSVs in \texttt{data/} \\
+        \hline
+        Data preprocessing pipeline & Chapter 4; \texttt{01\_preprocessing.ipynb}, \texttt{02\_features.ipynb} \\
+        \hline
+        EDA and visualizations & Chapter 5; \texttt{03\_eda.ipynb}; 8 EDA figures, 14 project figures in total \\
+        \hline
+        Classification algorithms & Chapter 6; \texttt{04\_modeling.ipynb} \\
+        \hline
+        Performance comparison & Chapter 6; \texttt{metrics\_comparison.csv}, \texttt{tuning\_results.csv}, \texttt{cv\_comparison.csv} \\
+        \hline
+        Conclusions and recommendations & Chapter 7; \texttt{docs/Jury2\_Report.md} \\
+        \hline
+        Association rule mining (Unit III) & Section 6.8; \texttt{tools/pattern\_mining.py} \\
+        \hline
+        Project report and presentation & This document and the executed notebooks \\
+        \hline
+    \end{tabularx}
+    \caption{Deliverable coverage for Jury II}
+    \label{tab:deliverables}
+\end{table}
+
+\section{Jury II Evaluation Coverage}
+\label{sec:evaluation-coverage}
+
+Table~\ref{tab:jury2-coverage} maps the evaluation parameters for Jury II to the parts of this report that address them. The table is an index, not a substitute for the chapters: each row points to the analysis, table, or figure that contains the evidence.
+
+\begin{table}[htbp]
+    \centering
+    \small
+    \renewcommand{\arraystretch}{1.2}
+    \begin{tabularx}{\textwidth}{@{}>{\raggedright\arraybackslash}p{4.4cm}X@{}}
+        \toprule
+        \textbf{Evaluation parameter} & \textbf{Coverage in this report} \\
+        \midrule
+        Dataset & Chapter~\ref{ch:literature}, Table~\ref{tab:pkdd_tables}; source joins and cleaning in Chapter~\ref{ch:preprocessing}. \\
+        \addlinespace
+        Architecture diagram & Figure~\ref{fig:architecture} and the stage description in Section~\ref{sec:pipeline-stages}. \\
+        \addlinespace
+        Input / output & Section~\ref{sec:io}, Table~\ref{tab:io}; the 18-feature model input and scored output are stated there. \\
+        \addlinespace
+        Classes / labels & Section~\ref{sec:target-definition}, Table~\ref{tab:target-balance}; the A/C versus B/D mapping and the 606/76 balance. \\
+        \addlinespace
+        Pattern matching (FP-Growth, Apriori) & Section~\ref{sec:pattern-mining}, Table~\ref{tab:pattern-rules}; both algorithms, the 41 itemsets, and the two default rules. \\
+        \addlinespace
+        Comparison with other classification algorithms & Sections~\ref{sec:test-results} and~\ref{sec:cv-results}, Tables~\ref{tab:test-results} and~\ref{tab:cv-results}; six classifiers under baseline and SMOTE. \\
+        \addlinespace
+        Classification algorithm & Chapter~\ref{ch:literature} and Sections~\ref{sec:classifiers} and~\ref{sec:training-pipeline}; the six learners and their pipelines. \\
+        \addlinespace
+        Innovation added to the classification algorithm & Section~\ref{sec:innovation}; the pre-loan representation, balance-capacity view, two-arm validation, and rule-plus-model review layer. \\
+        \addlinespace
+        Performance metrics & Section~\ref{sec:evaluation-protocol} and Sections~\ref{sec:test-results} and~\ref{sec:ranking-curves}; accuracy, precision, recall, F1, AP, ROC-AUC, and confusion matrices. \\
+        \addlinespace
+        Chart & Chapter~\ref{ch:eda} and Figures~\ref{fig:roc-curves} and~\ref{fig:pr-curves}; the Streamlit console in Section~\ref{sec:streamlit} presents the same charts. \\
+        \bottomrule
+    \end{tabularx}
+    \caption{Coverage of the Jury II evaluation parameters.}
+    \label{tab:jury2-coverage}
+\end{table}
+
+\section{Organization of the Report}
+Chapter 2 reviews the dataset, the classifiers, imbalance handling, and the evaluation metrics. Chapter 3 describes the system architecture, the input and output specification, leakage controls, and the evaluation protocol. Chapter 4 documents data cleaning and feature engineering. Chapter 5 presents the exploratory analysis. Chapter 6 reports the model implementation, tuning, comparison, feature importance, and pattern mining. Chapter 7 states the conclusions, innovation, limitations, and future scope. Section~\ref{sec:evaluation-coverage} maps each Jury II evaluation parameter to these chapters.

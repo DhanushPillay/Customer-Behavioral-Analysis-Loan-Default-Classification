@@ -1,0 +1,179 @@
+% Chapter 4
+\chapter{Data Preprocessing and Feature Engineering}
+\label{ch:preprocessing}
+
+The quality of a credit-risk model depends on what the feature table allows the model to see. This chapter documents the path from the five source tables to the 682-row modelling table, with particular attention to the time boundary around each loan and to the checks that were run before any classifier was trained.
+
+\section{Source Tables and Join Logic}
+\label{sec:source-join}
+
+The project uses all five PKDD'99 tables. The loan table is the anchor: it contains one row per loan, the account identifier, the grant date, the amount, the duration, the monthly payment, and the status that defines the target. The account table supplies the district and the account opening date. The client table supplies the birth number, which is used to derive age and gender. The disposition table connects clients to accounts; only owner dispositions are kept, because a disbursent is authorised to operate an account but is not the borrower. The transaction table supplies the behavioural history.
+
+The loan-to-account and loan-to-client links are many-to-one after the owner filter, while the transaction history is one-to-many. The transaction table is not joined row by row to the loan table. Instead, each loan is processed against the subset of transactions belonging to its account, which avoids a quadratic expansion of the data and makes the pre-loan cutoff explicit.
+
+After the joins and the owner filter, the loan table retains 682 rows. This is the population used in every later step. The transaction table contributes 1,056,320 records in total, of which 405,083 are credits (PRIJEM), 634,571 are debits (VYDAJ), and 16,666 are cash withdrawals (VYBER). The withdrawal features group the debit and cash-withdrawal types together.
+
+\section{Cleaning and Validation}
+\label{sec:cleaning}
+
+Table~\ref{tab:cleaning-checks} lists the checks performed on the assembled data. The checks are deliberately simple and are repeated as assertions in the notebooks, so a change in an input file fails loudly rather than silently changing a reported number.
+
+\begin{table}[H]
+    \centering
+    \caption{Data checks applied before feature construction.}
+    \label{tab:cleaning-checks}
+    \begin{tabularx}{\textwidth}{@{}lXl@{}}
+        \toprule
+        \textbf{Check} & \textbf{Result} & \textbf{Action} \\
+        \midrule
+        Duplicate loan rows & None found & No rows removed. \\
+        Date parsing & All \texttt{\%y\%m\%d} values parsed & Invalid formats would raise an error. \\
+        Client age range & 0 to 100 years & No age outliers requiring removal. \\
+        Missing values in modelling columns & None & No imputation needed. \\
+        Prior transactions per loan & At least 2 & Every loan has usable history. \\
+        Owner disposition link & 4,500 owner rows & Disbursent rows excluded. \\
+        Unused transaction columns & 183k to 783k nulls & Left unchanged; not used as features. \\
+        Class balance & 76 defaults in 682 loans & Handled by metrics and SMOTE experiments. \\
+        \bottomrule
+    \end{tabularx}
+\end{table}
+
+The null counts in the unused transaction columns are large because fields such as \texttt{operation}, \texttt{k\_symbol}, \texttt{bank}, and \texttt{account} are only populated for particular transaction types. These columns are not part of the feature set, so imputing them would add noise without adding information. They are retained in the raw extract for traceability.
+
+\section{Class Labels and Target Definition}
+\label{sec:target-definition}
+
+The loan status is mapped to a binary label. Status A means the loan finished without problems and status C means it is running without problems; both are treated as good. Status B means the loan finished with problems and status D means it is running with problems; both are treated as default. The mapping collapses the repayment outcome into the distinction that matters for credit risk: whether the borrower ran into difficulty.
+
+\begin{table}[H]
+    \centering
+    \caption{Target definition and class balance.}
+    \label{tab:target-balance}
+    \begin{tabular}{@{}lrr@{}}
+        \toprule
+        \textbf{Class} & \textbf{Loans} & \textbf{Share} \\
+        \midrule
+        Good (A or C) & 606 & 88.86\% \\
+        Default (B or D) & 76 & 11.14\% \\
+        \midrule
+        Total & 682 & 100.00\% \\
+        \bottomrule
+    \end{tabular}
+\end{table}
+
+The 11.14\% base rate is the reference point for every precision, recall, and lift statement in the report. A classifier that predicts ``good'' for every loan would be right 88.86\% of the time and would catch none of the 76 defaults. This is why accuracy is not used to select a model.
+
+\section{Pre-Loan Behavioural Features}
+\label{sec:behavioural-features}
+
+For each loan, the transaction history is cut at the grant date. Only records with \texttt{trans.date < loan.date} are used. The cutoff is strict: a transaction booked on the same day as the loan does not enter the feature vector, because the booking time relative to the grant is not known with enough precision.
+
+The filtered history is summarised into 13 features. Table~\ref{tab:behavioural-features} gives their definitions. The features fall into four groups: activity counts, cash-flow totals, transaction-size statistics, and balance history.
+
+\begin{table}[H]
+    \centering
+    \caption{The 13 pre-loan behavioural features. All values are computed from transactions dated strictly before the loan grant date.}
+    \label{tab:behavioural-features}
+    \begin{tabularx}{\textwidth}{@{}lX@{}}
+        \toprule
+        \textbf{Feature} & \textbf{Definition} \\
+        \midrule
+        \multicolumn{2}{@{}l}{\textit{Activity}} \\
+        \texttt{n\_txn} & Number of prior transactions. \\
+        \texttt{n\_deposit} & Number of credit transactions (PRIJEM). \\
+        \texttt{n\_withdrawal} & Number of debit or cash-withdrawal transactions (VYDAJ, VYBER). \\
+        \midrule
+        \multicolumn{2}{@{}l}{\textit{Cash flow}} \\
+        \texttt{sum\_deposit} & Total amount credited before the loan. \\
+        \texttt{sum\_withdrawal} & Total amount debited or withdrawn before the loan. \\
+        \midrule
+        \multicolumn{2}{@{}l}{\textit{Transaction size}} \\
+        \texttt{avg\_amount} & Mean transaction amount. \\
+        \texttt{std\_amount} & Population standard deviation of transaction amounts. \\
+        \midrule
+        \multicolumn{2}{@{}l}{\textit{Balance and history}} \\
+        \texttt{avg\_balance} & Mean running balance after each prior transaction. \\
+        \texttt{min\_balance} & Lowest running balance observed before the loan. \\
+        \texttt{max\_balance} & Highest running balance observed before the loan. \\
+        \texttt{balance\_at\_loan} & Running balance after the most recent prior transaction. \\
+        \texttt{months\_active} & Months between the first prior transaction and the loan date, using 30.44 days per month and a floor of one day. \\
+        \texttt{txn\_per\_month} & Prior transaction count divided by \texttt{months\_active}. \\
+        \bottomrule
+    \end{tabularx}
+\end{table}
+
+The balance features are cumulative in the sense that each transaction's recorded balance already reflects earlier activity. They are not independent observations, but they answer a question that the raw amounts cannot: whether the account was under strain shortly before the loan was granted. The minimum balance and the balance at the loan date turn out to be the two most useful behavioural signals in the fitted models.
+
+The history length deserves a caveat. A loan granted in 1993 may have only a few months of observed transactions, while a loan granted in 1998 may have several years. \texttt{months\_active} and \texttt{txn\_per\_month} reduce, but do not remove, this left-censoring. The feature table records the span so the model can separate a low-activity account from a short observation window.
+
+\section{Loan Terms and Demographics}
+\label{sec:terms-demographics}
+
+Three loan terms are added from the loan record: the requested \texttt{amount}, the \texttt{duration} in months, and the monthly \texttt{payments}. These are known at the grant date and are legitimate predictors. They also carry the repayment burden: a large loan relative to the account balance is a different proposition from a small loan with the same history.
+
+Two demographic features are derived from the client birth number. The birth number encodes the date of birth in its first six digits, with the month field offset by 50 for women. Gender is therefore derived as female when the two-digit month is greater than 50, and male otherwise. This yields 2,645 female clients and 2,724 male clients in the full client table. Age is computed against the reference year 1999, which is the end of the observation window, as $1999 - (\text{year of birth} + 1900)$.
+
+\texttt{gender\_bin} is coded as 1 for female and 0 for male. The district identifier is kept in the feature table for descriptive profiling but is not one of the 18 modelling features. The model matrix is deliberately compact: it contains the loan terms, the 13 behavioural features, age, and gender, and leaves out the high-cardinality district identifier.
+
+\section{Final Feature Table}
+\label{sec:final-feature-table}
+
+The output of the feature stage is \texttt{data/loan\_features.csv}, with 682 rows and 27 columns. The extra columns beyond the 18 modelling features are identifiers, dates, the raw status, and intermediate fields used for checks and joins. Table~\ref{tab:model-features} groups the 18 features that enter the classifiers.
+
+\begin{table}[H]
+    \centering
+    \caption{The 18 features used by the classifiers, by group.}
+    \label{tab:model-features}
+    \begin{tabularx}{\textwidth}{@{}lX@{}}
+        \toprule
+        \textbf{Group} & \textbf{Features} \\
+        \midrule
+        Loan terms (3) & \texttt{amount}, \texttt{duration}, \texttt{payments} \\
+        Activity (3) & \texttt{n\_txn}, \texttt{n\_deposit}, \texttt{n\_withdrawal} \\
+        Cash flow (2) & \texttt{sum\_deposit}, \texttt{sum\_withdrawal} \\
+        Transaction size (2) & \texttt{avg\_amount}, \texttt{std\_amount} \\
+        Balance (4) & \texttt{avg\_balance}, \texttt{min\_balance}, \texttt{max\_balance}, \texttt{balance\_at\_loan} \\
+        History (2) & \texttt{months\_active}, \texttt{txn\_per\_month} \\
+        Demographics (2) & \texttt{age}, \texttt{gender\_bin} \\
+        \bottomrule
+    \end{tabularx}
+\end{table}
+
+The table has no missing values and no duplicate loan identifiers. The average loan has about 80 prior transactions over roughly 13 months, an average balance near 43,600, and a balance at the loan date near 42,550. Those averages hide a wide spread: the balance distribution runs from overdrafts near $-17{,}000$ to balances above 100{,}000.
+
+\section{Transformation and Train/Test Split}
+\label{sec:split}
+
+Tree-based models do not require scaling, but the SVM and KNN do. Scaling is therefore placed inside each model's pipeline rather than applied once to the whole table. This keeps the scaler's mean and variance inside the training fold during cross-validation. SMOTE, when used, is also a pipeline step and is applied after scaling. The resampling is never performed before the split.
+
+The data is divided with a stratified 75/25 split and a fixed seed of 42. Stratification preserves the default rate in both partitions. Table~\ref{tab:split} shows the result.
+
+\begin{table}[H]
+    \centering
+    \caption{Stratified train/test split.}
+    \label{tab:split}
+    \begin{tabular}{@{}lrrrr@{}}
+        \toprule
+        \textbf{Partition} & \textbf{Loans} & \textbf{Good} & \textbf{Default} & \textbf{Default rate} \\
+        \midrule
+        Training & 511 & 454 & 57 & 11.15\% \\
+        Test & 171 & 152 & 19 & 11.11\% \\
+        \bottomrule
+    \end{tabular}
+\end{table}
+
+The test partition contains only 19 defaults. A single split therefore has limited power to separate models whose F1 differs by a few points. This is the reason the project adds repeated cross-validation on the training partition and treats the test table as a descriptive check rather than as the final arbiter.
+
+\section{Data Quality Observations}
+\label{sec:data-quality}
+
+Four properties of the feature table shaped the modelling choices.
+
+\begin{itemize}
+    \item \textbf{Skew.} The money features are right-skewed. A small number of accounts have very large turnover, while most sit in a narrow band. Tree models are insensitive to monotone transformations, and the scaled models use standardisation, so no log transform was applied. The skew remains visible in the exploratory plots and is one reason the median is reported alongside the mean for balance comparisons.
+    \item \textbf{Overdrafts.} Minimum balances reach about $-17{,}000$. These are genuine overdrafts, not data errors, and they are informative: a negative minimum balance is the strongest single behavioural signal in the pattern mining step.
+    \item \textbf{Collinearity.} \texttt{sum\_deposit} and \texttt{sum\_withdrawal} correlate at 0.997. Both are kept for interpretation, but their near-duplication means their individual importance scores should not be read as independent effects. The loan amount and monthly payment also move together, as expected from the repayment formula.
+    \item \textbf{Class imbalance.} With 76 defaults, the minority class is small in absolute terms. Resampling can change the balance but cannot create new information. The SMOTE experiments in Chapter~\ref{ch:models} are therefore treated as an empirical question, not as an assumed improvement.
+\end{itemize}
+
+The next chapter uses the cleaned feature table for exploratory analysis. The goal there is not to select a model but to understand which behaviours separate good and defaulted loans before any classifier is fitted.

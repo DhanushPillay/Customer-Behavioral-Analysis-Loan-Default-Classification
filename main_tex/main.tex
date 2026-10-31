@@ -1,0 +1,197 @@
+\documentclass[12pt, a4paper]{report}
+\usepackage[utf8]{inputenc}
+\usepackage{mathptmx} % Times New Roman
+\usepackage{geometry}
+\geometry{a4paper, margin=1in}
+\usepackage{setspace}
+\setstretch{1.5}
+\usepackage{graphicx}
+\graphicspath{{figures/}{./}}
+\usepackage{titlesec}
+\PassOptionsToPackage{hyphens}{url}
+\usepackage{hyperref}
+\usepackage{fancyhdr}
+\usepackage{listings}
+\usepackage{xcolor}
+\usepackage{tabularx}
+\usepackage{booktabs}
+\usepackage{longtable}
+\usepackage{float}
+\usepackage{eso-pic}
+\usepackage{tikz}
+\usepackage{enumitem}
+\usetikzlibrary{calc, shapes.geometric, shapes.multipart, arrows.meta, positioning, fit, backgrounds, decorations.pathreplacing}
+
+% --- PAGE BORDER ---
+\definecolor{bordercolor}{HTML}{B3A382} % Khaki/Gold border color matching the Word template
+\AddToShipoutPictureBG{%
+\begin{tikzpicture}[overlay,remember picture]
+\draw[line width=0.5pt, double, double distance=1.5pt, color=bordercolor]
+    ($ (current page.north west) + (0.5in,-0.5in) $)
+    rectangle
+    ($ (current page.south east) + (-0.5in,0.5in) $);
+\end{tikzpicture}
+}
+
+% --- HEADER & FOOTER ---
+\pagestyle{fancy}
+\fancyhf{} % Clear defaults
+\renewcommand{\headrulewidth}{0pt} % Remove header line
+% Set footer for standard pages
+\cfoot{\textcolor{blue!60}{\fontsize{9pt}{11pt}\selectfont MIT School of Computing, MIT ADT University}}
+\rfoot{\thepage}
+
+% Ensure title pages, certificates, and chapter starting pages also have the footer
+\fancypagestyle{empty}{
+  \fancyhf{}
+  \renewcommand{\headrulewidth}{0pt}
+  \cfoot{\textcolor{blue!60}{\fontsize{9pt}{11pt}\selectfont MIT School of Computing, MIT ADT University}}
+}
+\fancypagestyle{plain}{
+  \fancyhf{}
+  \renewcommand{\headrulewidth}{0pt}
+  \cfoot{\textcolor{blue!60}{\fontsize{9pt}{11pt}\selectfont MIT School of Computing, MIT ADT University}}
+  \rfoot{\thepage}
+}
+
+% Chapter formatting
+\titleformat{\chapter}[display]
+  {\normalfont\fontsize{16pt}{19pt}\bfseries\centering}{\chaptertitlename\ \thechapter}{10pt}{\fontsize{16pt}{19pt}\selectfont}
+\titlespacing*{\chapter}{0pt}{-20pt}{20pt}
+\titleformat{\section}
+  {\normalfont\fontsize{14pt}{17pt}\bfseries}{\thesection}{1em}{}
+\titleformat{\subsection}
+  {\normalfont\fontsize{12pt}{15pt}\bfseries}{\thesubsection}{1em}{}
+
+% Code block styling
+\definecolor{codegreen}{rgb}{0,0.6,0}
+\definecolor{codegray}{rgb}{0.5,0.5,0.5}
+\definecolor{codepurple}{rgb}{0.58,0,0.82}
+\definecolor{backcolour}{rgb}{0.95,0.95,0.92}
+\definecolor{mitpurple}{HTML}{7030A0} % Deep purple matching Word
+
+\lstdefinestyle{mystyle}{
+    backgroundcolor=\color{backcolour},   
+    commentstyle=\color{codegreen},
+    keywordstyle=\color{blue},
+    numberstyle=\tiny\color{codegray},
+    stringstyle=\color{codepurple},
+    basicstyle=\ttfamily\small,
+    breakatwhitespace=false,         
+    breaklines=true,                 
+    captionpos=b,                    
+    keepspaces=true,                 
+    numbers=left,                    
+    numbersep=5pt,                  
+    showspaces=false,                
+    showstringspaces=false,
+    showtabs=false,                  
+    tabsize=2
+}
+\lstset{style=mystyle}
+
+% Colors for TikZ
+\definecolor{primary}{RGB}{225,29,72}
+\definecolor{secondary}{RGB}{13,148,136}
+\definecolor{accent}{RGB}{245,158,11}
+\definecolor{dark}{RGB}{15,23,42}
+\definecolor{lightgray}{RGB}{241,245,249}
+\definecolor{midgray}{RGB}{148,163,184}
+\definecolor{success}{RGB}{16,185,129}
+\definecolor{danger}{RGB}{239,68,68}
+\definecolor{tablebg}{HTML}{f8fafc}
+\definecolor{tableborder}{HTML}{cbd5e1}
+
+\begin{document}
+\pagenumbering{roman}
+
+% --- TITLE PAGE ---
+\begin{titlepage}
+    \centering
+    \vspace*{0.5cm}
+    
+    {\Large \textbf{A JURY PROJECT REPORT}}\\[0.3cm]
+    \textit{Submitted in partial fulfillment of the requirements} \\
+    \textit{for the award of the degree of}\\[0.3cm]
+    
+    {\Large \textbf{BACHELOR OF TECHNOLOGY}} \\
+    \textit{in} \\
+    {\large \textbf{COMPUTER SCIENCE \& ENGINEERING}}\\[0.3cm]
+    
+    \textcolor{mitpurple}{\textbf{SUBJECT: DATA WAREHOUSING AND DATA MINING (DWDM)}}\\[0.3cm]
+    \textcolor{mitpurple}{\textbf{JURY II: UNITS III \& IV}}\\[0.8cm]
+    
+    {\LARGE \textbf{``Customer Behavioral Analysis and\\[0.2cm] Loan Default Classification''}}\\[0.35cm]
+    {\large \textit{A Data Mining Approach to Credit Risk on the PKDD'99 Dataset}}\\[0.8cm]
+    
+    \textbf{SUBMITTED BY:}\\
+    Dhanush Pillay \hspace{1cm} ADT24SOCB0765 \\
+    Shubhangini Dixit \hspace{0.65cm} ADT24SOCB1156 \\
+    Semester: $5^{th}$ Semester / TY BDCE \\[0.5cm]
+    
+    \textbf{INTERNAL FACULTY GUIDE:}\\
+    Dr. Reena Pagare \\
+    Department of Computer Science \& Engineering \\[0.5cm]
+    
+    \vfill
+    
+    \textbf{DEPARTMENT OF COMPUTER SCIENCE \& ENGINEERING}\\
+    \textcolor{mitpurple}{\textbf{MIT ART, DESIGN AND TECHNOLOGY UNIVERSITY, PUNE}}\\
+    Loni Kalbhor, Pune, MH, India -- 412201
+\end{titlepage}
+
+
+
+
+\newpage
+\begin{spacing}{1.35}
+\tableofcontents
+\end{spacing}
+\listoffigures
+\listoftables
+
+\clearpage
+\pagenumbering{arabic}
+
+\include{chapters/chapter_1}
+\include{chapters/chapter_2}
+\include{chapters/chapter_3}
+\include{chapters/chapter_4}
+\include{chapters/chapter_5}
+\include{chapters/chapter_6}
+\include{chapters/chapter_7}
+
+\clearpage
+\phantomsection
+\addcontentsline{toc}{chapter}{References}
+\begin{center}
+    {\huge \textbf{References}}\\[1cm]
+\end{center}
+
+\begin{itemize}[leftmargin=1.5cm, label={}, itemsep=0.8cm]
+    \item[\textbf{R1}] \textbf{Dataset}
+    \begin{enumerate}[label={[\arabic*]}, leftmargin=*, labelsep=0.3cm, itemsep=0.3cm]
+        \item P. Berka, ``PKDD'99 Discovery Challenge: Financial Dataset,'' 1999. [Online]. Available: \url{https://www.kaggle.com/datasets/siavashraz/1999-czech-financial-dataset}
+    \end{enumerate}
+
+    \item[\textbf{R2}] \textbf{Libraries and Tools}
+    \begin{enumerate}[label={[\arabic*]}, leftmargin=*, labelsep=0.3cm, itemsep=0.3cm, start=2]
+        \item F. Pedregosa \textit{et al.}, ``Scikit-learn: Machine Learning in Python,'' \textit{Journal of Machine Learning Research}, vol. 12, pp. 2825--2830, 2011. [Online]. Available: \url{https://scikit-learn.org}
+        \item G. Lema\^itre, F. Nogueira, and C. K. Aridas, ``Imbalanced-learn: A Python Toolbox to Tackle the Curse of Imbalanced Datasets in Machine Learning,'' \textit{Journal of Machine Learning Research}, vol. 18, no. 17, pp. 1--5, 2017. [Online]. Available: \url{https://imbalanced-learn.org}
+        \item W. McKinney, ``Data Structures for Statistical Computing in Python,'' in \textit{Proceedings of the 9th Python in Science Conference}, 2010, pp. 56--61. [Online]. Available: \url{https://pandas.pydata.org}
+        \item J. D. Hunter, ``Matplotlib: A 2D Graphics Environment,'' \textit{Computing in Science \& Engineering}, vol. 9, no. 3, pp. 90--95, 2007. [Online]. Available: \url{https://matplotlib.org}
+        \item M. Waskom, ``Seaborn: Statistical Data Visualization,'' \textit{Journal of Open Source Software}, vol. 6, no. 60, p. 3021, 2021. [Online]. Available: \url{https://seaborn.pydata.org}
+        \item T. Kluyver \textit{et al.}, ``Jupyter Notebooks --- a Publishing Format for Reproducible Computational Workflows,'' in \textit{Positioning and Power in Academic Publishing}, IOS Press, 2016, pp. 87--90. [Online]. Available: \url{https://jupyter.org}
+    \end{enumerate}
+
+    \item[\textbf{R3}] \textbf{Methodological References}
+    \begin{enumerate}[label={[\arabic*]}, leftmargin=*, labelsep=0.3cm, itemsep=0.3cm, start=8]
+        \item N. V. Chawla, K. W. Bowyer, L. O. Hall, and W. P. Kegelmeyer, ``SMOTE: Synthetic Minority Over-sampling Technique,'' \textit{Journal of Artificial Intelligence Research}, vol. 16, pp. 321--357, 2002.
+        \item L. Breiman, ``Random Forests,'' \textit{Machine Learning}, vol. 45, no. 1, pp. 5--32, 2001.
+        \item J. H. Friedman, ``Greedy Function Approximation: A Gradient Boosting Machine,'' \textit{Annals of Statistics}, vol. 29, no. 5, pp. 1189--1232, 2001.
+        \item R. Wirth and J. Hipp, ``CRISP-DM: Towards a Standard Process Model for Data Mining,'' in \textit{Proceedings of the 4th International Conference on the Practical Application of Knowledge Discovery and Data Mining}, 2000, pp. 29--39.
+    \end{enumerate}
+
+\end{itemize}
+
+\end{document}
