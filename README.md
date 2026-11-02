@@ -44,6 +44,17 @@ flowchart LR
 ## Headline Result
 Tuned Gradient Boosting on unresampled data is the selected model: repeated cross-validated F1 0.571 ± 0.120, Average Precision 0.654, ROC-AUC 0.864. Tuned Random Forest ties it on F1 and leads on Average Precision (0.661) and ROC-AUC (0.877), so the two are one leading group. Two findings from the testing: SMOTE lowered F1 for five of the six models, and hyperparameter search mattered mainly for SVM and Decision Tree. Low pre-loan balances (`min_balance`, `balance_at_loan`) are the strongest default signals, and crossing pre-loan balance with loan amount separates the portfolio from 4.9% to 23.3% default. Behavior segmentation finds two groups: a quieter low-balance segment defaulting at 12.4 percent versus 9.2 percent for the active segment. Details in `docs/Jury2_Report.md`.
 
+## Dashboard
+The Streamlit app (`app.py`) restructures the Jury 2 deliverable into five pages over the out-of-fold scores of the selected tuned Gradient Boosting model:
+
+- **Portfolio** — cutoff slider, gains/capture curve, confusion matrix, exposure in CZK, cutoff trade-off table, default rate by quintile, behavior segments.
+- **Data & leakage** — star-schema row counts, a per-loan proof that only transactions strictly before the loan date are used, feature provenance, quality checks.
+- **Models** — leaderboard (rank by F1 / Average Precision / ROC-AUC, baseline vs SMOTE, default vs tuned), held-out heatmap, tabs for repeated CV, curves and tuning, plus the capacity-aware challenger.
+- **Patterns** — 41 itemsets and 2 rules from the association mining, with the negative-balance rule called out and its small sample size stated.
+- **Simulator** — scores a loan through the saved pipeline from five inputs, with the probability, percentile, PD x exposure, and one-at-a-time drivers.
+
+Run with `streamlit run app.py` (Python 3.13; dependencies in `requirements.txt`).
+
 ## How to Run
 Install dependencies with `pip install -r requirements.txt`, then execute the notebooks in order (01 to 05). Each notebook is self-contained and runs top to bottom, for example:
 
