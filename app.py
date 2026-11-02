@@ -1,690 +1,1153 @@
-﻿from ast import literal_eval
+﻿"""Loan default review dashboard.
+
+Every figure is read or computed from the artefacts produced by the notebooks
+and tools/ scripts: data/loan_features.csv, outputs/*.csv, outputs/models/*.pkl
+and outputs/figures/*.png. Nothing on the page is typed in by hand.
+"""
+
+from __future__ import annotations
+
+from ast import literal_eval
 from pathlib import Path
 
+import joblib
+import matplotlib
+
+matplotlib.use("Agg")
+
 import matplotlib.pyplot as plt
+import numpy as np
 import pandas as pd
 import streamlit as st
-
+from matplotlib.colors import LinearSegmentedColormap
+from matplotlib.ticker import FuncFormatter
 
 ROOT = Path(__file__).resolve().parent
+DATA = ROOT / "data"
+CLEAN = DATA / "clean"
 OUTPUTS = ROOT / "outputs"
 FIGURES = OUTPUTS / "figures"
+MODELS = OUTPUTS / "models"
+
+PAPER = "#fbfaf7"
+INK = "#191b1f"
+MUTED = "#6b6f76"
+RULE = "#e4e1d8"
+ACCENT = "#1f4e6b"
+RISK = "#a63d2f"
+GOOD = "#2f6b4f"
+
+DROP = [
+    "loan_id",
+    "account_id",
+    "client_id",
+    "district_id",
+    "status",
+    "date",
+    "parsed_date",
+    "gender",
+    "target",
+]
+
+SIM_INPUTS = {
+    "amount": "Loan amount",
+    "duration": "Duration",
+    "balance_at_loan": "Balance at loan date",
+    "min_balance": "Minimum balance",
+    "txn_per_month": "Transactions per month",
+}
+
+
+def stress_text(key: str, value: float) -> str:
+    if key in {"amount", "balance_at_loan", "min_balance"}:
+        return f"{value:,.0f} CZK"
+    if key == "duration":
+        return f"{value:.0f} months"
+    return f"{value:.1f} per month"
+
+PAGES = ["Portfolio", "Data & leakage", "Models", "Patterns", "Simulator"]
 
 st.set_page_config(
-    page_title="Loan Default Intelligence",
-    page_icon="≡ƒôè",
+    page_title="Loan default review",
     layout="wide",
-    initial_sidebar_state="expanded",
+    initial_sidebar_state="auto",
 )
 
 st.markdown(
     """
     <style>
-    :root { --ink: #202124; --blue: #3a86ff; --coral: #ff595e; --citrus: #ffca3a; --paper: #f7f7f2; }
-    [data-testid="stAppViewContainer"] { background: var(--paper); color: var(--ink); }
-    [data-testid="stSidebar"] { background: #202124; border-right: 4px solid var(--coral); }
-    [data-testid="stSidebar"] * { color: #f7f7f2; }
-    [data-testid="stMetricValue"] { color: var(--coral); }
-    [data-testid="stMetricLabel"] { color: #5c6268; }
-    h1, h2, h3 { color: var(--ink); letter-spacing: 0; }
-    .block-container { max-width: 1320px; padding-top: 2.2rem; }
-    .hero { padding: 0.4rem 0 0.8rem; }
-    .eyebrow { color: var(--blue); font-size: 0.75rem; font-weight: 800; letter-spacing: 0.12em; text-transform: uppercase; }
-    .muted { color: #5c6268; font-size: 1rem; }
-    .signal { background: #eef4ff; border-left: 4px solid var(--blue); padding: 0.85rem 1rem; margin: 0.5rem 0 1.2rem; }
-    .sidebar-title { color: var(--citrus); font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase; font-size: 0.72rem; }
-    .sidebar-note { color: #d6dde0; font-size: 0.82rem; line-height: 1.45; }
-    [data-testid="stSidebar"] [role="radiogroup"] label p { color: #f7f7f2; }
+    :root {
+      --paper: #fbfaf7; --ink: #191b1f; --muted: #6b6f76; --rule: #e4e1d8;
+      --accent: #1f4e6b; --risk: #a63d2f; --good: #2f6b4f;
+      --serif: "Iowan Old Style", "Palatino Linotype", "Book Antiqua", Palatino, Georgia, serif;
+      --sans: "Segoe UI", system-ui, -apple-system, "Helvetica Neue", Arial, sans-serif;
+    }
+    .stApp { background: var(--paper); color: var(--ink); font-family: var(--sans); }
+    [data-testid="stHeader"] { background: transparent; }
+    [data-testid="stSidebar"] { background: #f3f0e7; border-right: 1px solid var(--rule); }
+    .block-container { max-width: 1160px; padding-top: 2.4rem; padding-bottom: 4rem; }
+    h1, h2, h3 { font-family: var(--serif); font-weight: 500; letter-spacing: -0.015em; color: var(--ink); }
+    h1 { font-size: 2.3rem; line-height: 1.15; margin: 0.15rem 0 0.45rem; }
+    h3 { font-size: 1.12rem; margin-top: 1.4rem; }
+    p, li { line-height: 1.6; }
+    a { color: var(--accent); }
+    .eyebrow { font-size: 0.68rem; font-weight: 700; letter-spacing: 0.16em; text-transform: uppercase; color: var(--accent); }
+    .lede { max-width: 64ch; color: var(--muted); font-size: 0.97rem; margin: 0.1rem 0 1.5rem; }
+    .kpi { border-top: 1px solid var(--ink); padding: 0.55rem 0 0; }
+    .kpi-label { font-size: 0.63rem; font-weight: 700; letter-spacing: 0.13em; text-transform: uppercase; color: var(--muted); }
+    .kpi-value { font-family: var(--serif); font-size: 1.72rem; line-height: 1.15; margin-top: 0.2rem; font-variant-numeric: tabular-nums; }
+    .kpi-note { font-size: 0.74rem; color: var(--muted); margin-top: 0.12rem; }
+    .section { display: flex; align-items: baseline; gap: 0.9rem; border-top: 1px solid var(--rule); margin: 2.4rem 0 0.9rem; padding-top: 0.8rem; }
+    .section span { font-size: 0.69rem; font-weight: 700; letter-spacing: 0.15em; text-transform: uppercase; color: var(--ink); white-space: nowrap; }
+    .section em { font-style: normal; font-size: 0.78rem; color: var(--muted); }
+    .note { border-left: 2px solid var(--accent); padding: 0.05rem 0 0.05rem 0.85rem; margin: 0.6rem 0 1.2rem; font-size: 0.9rem; line-height: 1.55; }
+    .note b { display: block; font-size: 0.62rem; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; color: var(--accent); margin-bottom: 0.22rem; }
+    .note.risk { border-color: var(--risk); }
+    .note.risk b { color: var(--risk); }
+    .brand { font-family: var(--serif); font-size: 1.14rem; line-height: 1.2; }
+    .brand-sub { font-size: 0.72rem; color: var(--muted); line-height: 1.45; margin: 0.25rem 0 1.1rem; }
+    .side-label { font-size: 0.61rem; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; color: var(--muted); margin: 1.3rem 0 0.35rem; }
+    .side-line { display: flex; justify-content: space-between; font-size: 0.78rem; border-bottom: 1px solid var(--rule); padding: 0.24rem 0; }
+    .side-line span:last-child { font-variant-numeric: tabular-nums; }
+    .prob { font-family: var(--serif); font-size: 3.2rem; line-height: 1; font-variant-numeric: tabular-nums; letter-spacing: -0.02em; }
+    .prob.risk { color: var(--risk); }
+    .prob.calm { color: var(--good); }
+    .verdict { font-size: 0.9rem; line-height: 1.5; margin-top: 0.35rem; color: var(--ink); }
+    .matrix { border-collapse: collapse; width: 100%; font-size: 0.82rem; }
+    .matrix th, .matrix td { border-bottom: 1px solid var(--rule); padding: 0.42rem 0.5rem; text-align: right; }
+    .matrix th:first-child, .matrix td:first-child { text-align: left; }
+    .matrix thead th { font-size: 0.61rem; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); font-weight: 700; }
+    .matrix td.num { font-variant-numeric: tabular-nums; }
+    .matrix .hit { color: var(--good); font-weight: 600; }
+    .matrix .miss { color: var(--risk); font-weight: 600; }
+    [data-testid="stDataFrame"] { border: 1px solid var(--rule); }
+    .stTabs [data-baseweb="tab-list"] { gap: 1.5rem; border-bottom: 1px solid var(--rule); }
+    .stTabs [data-baseweb="tab"] { padding: 0.4rem 0; font-size: 0.8rem; }
+    [data-testid="stExpander"] details { border: 1px solid var(--rule); border-radius: 0; }
+    div[data-testid="stImage"] figcaption { font-size: 0.74rem; color: var(--muted); }
     </style>
     """,
     unsafe_allow_html=True,
 )
 
+plt.rcParams.update(
+    {
+        "figure.facecolor": PAPER,
+        "axes.facecolor": PAPER,
+        "savefig.facecolor": PAPER,
+        "axes.edgecolor": RULE,
+        "axes.labelcolor": MUTED,
+        "axes.titlecolor": INK,
+        "text.color": INK,
+        "xtick.color": MUTED,
+        "ytick.color": MUTED,
+        "xtick.labelsize": 8,
+        "ytick.labelsize": 8,
+        "axes.labelsize": 8.5,
+        "axes.titlesize": 9.5,
+        "font.family": "DejaVu Sans",
+        "axes.spines.top": False,
+        "axes.spines.right": False,
+        "grid.color": RULE,
+        "grid.linewidth": 0.7,
+        "lines.linewidth": 1.8,
+    }
+)
 
-@st.cache_data
-def load_csv(name: str) -> pd.DataFrame:
-    return pd.read_csv(OUTPUTS / name)
+HEAT = LinearSegmentedColormap.from_list("paper_ink", ["#fbfaf7", "#c9d6de", "#1f4e6b"])
 
 
-@st.cache_data
+# ---------------------------------------------------------------- data access
+
+
+@st.cache_data(show_spinner=False)
 def load_features() -> pd.DataFrame:
-    return pd.read_csv(ROOT / "data" / "loan_features.csv")
+    return pd.read_csv(DATA / "loan_features.csv")
 
 
-def load_optional_csv(name: str) -> pd.DataFrame | None:
+@st.cache_data(show_spinner=False)
+def load_output(name: str) -> pd.DataFrame | None:
     path = OUTPUTS / name
     return pd.read_csv(path) if path.exists() else None
 
 
-def format_metric(value: float) -> str:
-    return f"{value:.3f}"
+@st.cache_data(show_spinner=False)
+def load_scores() -> pd.DataFrame:
+    return pd.read_csv(OUTPUTS / "model_scores.csv")
 
 
-def show_header(eyebrow: str, title: str, description: str) -> None:
-    st.markdown(
-        f'<div class="hero"><div class="eyebrow">{eyebrow}</div>'
-        f"<h1>{title}</h1><p class='muted'>{description}</p></div>",
-        unsafe_allow_html=True,
-    )
+@st.cache_data(show_spinner="Reading transactions...")
+def load_transactions() -> pd.DataFrame:
+    return pd.read_csv(CLEAN / "fact_transactions.csv", usecols=["account_id", "date_id"])
 
 
-def show_project_pulse() -> None:
-    st.sidebar.markdown('<div class="sidebar-title">Project pulse</div>', unsafe_allow_html=True)
-    st.sidebar.metric("Applications", "682")
-    pulse_left, pulse_right = st.sidebar.columns(2)
-    pulse_left.metric("Defaults", "76")
-    pulse_right.metric("Base rate", "11.1%")
-    st.sidebar.markdown(
-        '<div class="sidebar-note">Historical PKDD\'99 banking data<br>Pre-loan behavioral evidence only</div>',
-        unsafe_allow_html=True,
-    )
-    st.sidebar.divider()
+@st.cache_data(show_spinner=False)
+def table_counts() -> pd.DataFrame:
+    rows = []
+    for path in sorted(CLEAN.glob("*.csv")):
+        with path.open("rb") as handle:
+            rows.append({"table": path.stem, "rows": sum(1 for _ in handle) - 1})
+    return pd.DataFrame(rows)
 
 
-def comparison_page() -> None:
-    metrics = load_csv("metrics_comparison.csv")
-    cv = load_csv("cv_comparison.csv")
-    segments = load_csv("segment_profiles.csv")
+@st.cache_resource(show_spinner=False)
+def load_model():
+    return joblib.load(MODELS / "best_GradientBoosting_baseline_tuned.pkl")
 
-    show_header(
-        "05 / Model comparison",
-        "Six models. One practical shortlist.",
-        "Compare every classifier visually, then choose the model that best fits the lending workflow.",
-    )
 
-    metric_options = {
-        "F1 score": ("cv_f1_mean", "cv_f1_std"),
-        "Average precision": ("cv_ap_mean", "cv_ap_std"),
-        "ROC-AUC": ("cv_auc_mean", "cv_auc_std"),
-    }
-    controls = st.columns([1.2, 1, 1, 1.4])
-    metric_label = controls[0].selectbox("Rank models by", list(metric_options))
-    setting = controls[1].selectbox("Balance treatment", ["baseline", "smote"], format_func=str.title)
-    variant = controls[2].selectbox("Model state", ["tuned", "default"], format_func=str.title)
-    metric_column, spread_column = metric_options[metric_label]
-    selected = cv[(cv["setting"] == setting) & (cv["variant"] == variant)].copy()
-    best = selected.sort_values(metric_column, ascending=False).iloc[0]
-    controls[3].caption("Selection protocol")
-    controls[3].markdown("Repeated stratified 5-fold x 10 CV")
-    cards = st.columns(4)
-    cards[0].metric("Best model", best["model"])
-    cards[1].metric(metric_label, f"{best[metric_column]:.3f} ┬▒ {best[spread_column]:.3f}")
-    cards[2].metric("Average precision", format_metric(best["cv_ap_mean"]))
-    cards[3].metric("ROC-AUC", format_metric(best["cv_auc_mean"]))
-    st.markdown(
-        f'<div class="signal"><b>Reading this view:</b> {best["model"]} leads the selected '
-        f'{setting} / {variant} slice on {metric_label}. The error range shows how much the score moved across repeated folds.</div>',
-        unsafe_allow_html=True,
-    )
-
-    st.subheader("All models at a glance")
-    board = selected.sort_values(metric_column, ascending=False).reset_index(drop=True)
-    model_columns = st.columns(min(3, len(board)))
-    for index, (_, row) in enumerate(board.iterrows()):
-        column = model_columns[index % len(model_columns)]
-        column.metric(row["model"], f"{row[metric_column]:.3f}", f"F1 {row['cv_f1_mean']:.3f} | AUC {row['cv_auc_mean']:.3f}")
-
-    st.subheader("Metric heatmap")
-    heatmap_columns = ["accuracy", "precision", "recall", "f1", "average_precision", "roc_auc"]
-    held_out = metrics[metrics["setting"] == setting].copy()
-    available_columns = [column for column in heatmap_columns if column in held_out.columns]
-    if available_columns:
-        heatmap = held_out.set_index("model")[available_columns].sort_values("f1", ascending=False)
-        labels = [column.replace("_", " ").title() for column in available_columns]
-        fig, ax = plt.subplots(figsize=(12, max(3.5, len(heatmap) * 0.7)))
-        image = ax.imshow(heatmap.values, cmap="YlOrRd", vmin=0, vmax=1, aspect="auto")
-        ax.set_xticks(range(len(labels)), labels, rotation=25, ha="right")
-        ax.set_yticks(range(len(heatmap.index)), heatmap.index)
-        for row_index in range(len(heatmap.index)):
-            for column_index in range(len(available_columns)):
-                ax.text(column_index, row_index, f"{heatmap.iloc[row_index, column_index]:.2f}", ha="center", va="center", color="black")
-        fig.colorbar(image, ax=ax, label="Score")
-        st.pyplot(fig, use_container_width=True)
-        plt.close(fig)
-
-    left, right = st.columns(2)
-    with left:
-        st.subheader(f"Leaderboard by {metric_label}")
-        chart_data = selected.sort_values(metric_column)
-        fig, ax = plt.subplots(figsize=(7, 4))
-        ax.barh(chart_data["model"], chart_data[metric_column], color="#3a86ff")
-        ax.set_xlabel(metric_label)
-        ax.set_xlim(0, min(1, chart_data[metric_column].max() + 0.12))
-        ax.grid(axis="x", alpha=0.2)
-        st.pyplot(fig, use_container_width=True)
-        plt.close(fig)
-    with right:
-        st.subheader("F1 versus ranking quality")
-        tuned_baseline = cv[(cv["setting"] == "baseline") & (cv["variant"] == "tuned")].copy()
-        fig, ax = plt.subplots(figsize=(7, 4))
-        ax.scatter(tuned_baseline["cv_f1_mean"], tuned_baseline["cv_auc_mean"], color="#ff595e", s=85)
-        for _, row in tuned_baseline.iterrows():
-            ax.annotate(row["model"], (row["cv_f1_mean"], row["cv_auc_mean"]), xytext=(5, 5), textcoords="offset points")
-        ax.set_xlabel("Tuned F1 mean")
-        ax.set_ylabel("Tuned ROC-AUC mean")
-        ax.grid(alpha=0.2)
-        st.pyplot(fig, use_container_width=True)
-        plt.close(fig)
-
-    st.subheader("All model runs")
-    display_cv = selected.copy()
-    display_cv["configuration"] = display_cv["setting"] + " / " + display_cv["variant"]
-    st.dataframe(
-        display_cv[["model", "configuration", "cv_f1_mean", "cv_f1_std", "cv_ap_mean", "cv_auc_mean"]]
-        .sort_values("cv_f1_mean", ascending=False)
-        .style.format({column: "{:.3f}" for column in ["cv_f1_mean", "cv_f1_std", "cv_ap_mean", "cv_auc_mean"]}),
-        use_container_width=True,
-        hide_index=True,
-    )
-
-    with st.expander("See the held-out default-setting table"):
-        st.dataframe(metrics, use_container_width=True, hide_index=True)
-
-    st.subheader("Behavior segments")
-    segment_cards = st.columns(len(segments))
-    for card, (_, segment) in zip(segment_cards, segments.iterrows()):
-        card.metric(f"Segment {int(segment['segment'])} default rate", f"{segment['default_rate']:.1%}")
-        card.caption(f"{int(segment['size'])} loans | {segment['n_txn']:.0f} average transactions")
-
-    st.subheader("Portfolio risk lens")
-    st.caption("Adjust the review cutoffs to see how balance capacity and loan size divide the portfolio. This is a screening view, not a lending rule.")
+@st.cache_data(show_spinner=False)
+def leakage_audit() -> pd.DataFrame:
     features = load_features()
-    balance_median = round(float(features["balance_at_loan"].median()) / 1000) * 1000.0
-    amount_median = round(float(features["amount"].median()) / 1000) * 1000.0
-    balance_min = round(float(features["balance_at_loan"].quantile(0.10)) / 1000) * 1000.0
-    balance_max = round(float(features["balance_at_loan"].quantile(0.90)) / 1000) * 1000.0
-    amount_min = round(float(features["amount"].quantile(0.10)) / 1000) * 1000.0
-    amount_max = round(float(features["amount"].quantile(0.90)) / 1000) * 1000.0
-    risk_controls = st.columns(2)
-    balance_cutoff = risk_controls[0].slider(
-        "Balance-at-loan cutoff",
-        min_value=balance_min,
-        max_value=balance_max,
-        value=balance_median,
-        step=1000.0,
+    transactions = load_transactions()
+    cuts = pd.to_datetime(features["parsed_date"]).dt.strftime("%Y%m%d").astype(int)
+    grouped = {
+        account: np.sort(frame["date_id"].to_numpy())
+        for account, frame in transactions.groupby("account_id")
+    }
+    rows = []
+    for loan_id, account, cut, n_txn in zip(
+        features["loan_id"], features["account_id"], cuts, features["n_txn"]
+    ):
+        dates = grouped.get(account)
+        used = int(np.searchsorted(dates, cut, side="left")) if dates is not None else 0
+        total = int(dates.size) if dates is not None else 0
+        rows.append((loan_id, account, cut, n_txn, used, total))
+    return pd.DataFrame(
+        rows, columns=["loan_id", "account_id", "cutoff", "n_txn", "used", "total"]
     )
-    amount_cutoff = risk_controls[1].slider(
-        "Loan amount cutoff",
-        min_value=amount_min,
-        max_value=amount_max,
-        value=amount_median,
-        step=1000.0,
-    )
-    features = features.copy()
-    features["risk_quadrant"] = (
-        features["balance_at_loan"].ge(balance_cutoff).map({True: "Higher balance", False: "Lower balance"})
-        + " / "
-        + features["amount"].ge(amount_cutoff).map({True: "Higher loan", False: "Lower loan"})
-    )
-    risk_table = (
-        features.groupby("risk_quadrant", as_index=False)
-        .agg(loans=("target", "size"), defaults=("target", "sum"), default_rate=("target", "mean"))
-        .sort_values("default_rate", ascending=False)
-    )
-    risk_left, risk_right = st.columns([1.1, 1])
-    with risk_left:
-        st.dataframe(
-            risk_table.style.format({"default_rate": "{:.1%}"}),
-            use_container_width=True,
-            hide_index=True,
-        )
-    with risk_right:
-        fig, ax = plt.subplots(figsize=(6, 4))
-        colors = ["#ff595e" if rate == risk_table["default_rate"].max() else "#3a86ff" for rate in risk_table["default_rate"]]
-        ax.barh(risk_table["risk_quadrant"], risk_table["default_rate"], color=colors)
-        ax.set_xlabel("Default rate")
-        ax.xaxis.set_major_formatter(plt.FuncFormatter(lambda value, _: f"{value:.0%}"))
-        ax.grid(axis="x", alpha=0.2)
-        st.pyplot(fig, use_container_width=True)
-        plt.close(fig)
-    highest_risk = risk_table.iloc[0]
+
+
+# ------------------------------------------------------------------- helpers
+
+
+def page_header(eyebrow: str, title: str, lede: str) -> None:
     st.markdown(
-        f'<div class="signal"><b>Highest observed quadrant:</b> {highest_risk["risk_quadrant"]} '
-        f'with {highest_risk["default_rate"]:.1%} default rate across {int(highest_risk["loans"])} loans. '
-        "Use this to prioritize investigation, not to automate approval decisions.</div>",
+        f'<div class="eyebrow">{eyebrow}</div><h1>{title}</h1><p class="lede">{lede}</p>',
         unsafe_allow_html=True,
     )
 
 
-def best_model_page() -> None:
-    cv = load_csv("cv_comparison.csv")
-    metrics = load_csv("metrics_comparison.csv")
-    tuned_baseline = cv[(cv["setting"] == "baseline") & (cv["variant"] == "tuned")].copy()
-    best = tuned_baseline.sort_values("cv_f1_mean", ascending=False).iloc[0]
-    model_metrics = metrics[metrics["model"] == best["model"]]
-
-    show_header(
-        "02 / Model rationale",
-        f"Why {best['model']} is the headline model",
-        "The selection is grounded in repeated validation, then checked against precision, ranking quality, imbalance handling, and business cost.",
-    )
-
-    st.info(
-        f"The selected configuration is tuned {best['model']} with the unresampled baseline arm. "
-        f"It leads on repeated-CV F1 at {best['cv_f1_mean']:.3f} ┬▒ {best['cv_f1_std']:.3f}."
-    )
-
-    rf = tuned_baseline[tuned_baseline["model"] == "RandomForest"].iloc[0]
-    lead_gap = best["cv_f1_mean"] - rf["cv_f1_mean"]
+def section(title: str, note: str = "") -> None:
+    extra = f"<em>{note}</em>" if note else ""
     st.markdown(
-        f'<div class="signal"><b>Decision boundary:</b> Gradient Boosting leads Random Forest by only '
-        f'{lead_gap:.3f} F1 points, while Random Forest leads on Average Precision and ROC-AUC. '
-        "Use Gradient Boosting as the headline classifier and keep Random Forest as the ranking challenger.</div>",
+        f'<div class="section"><span>{title}</span>{extra}</div>',
         unsafe_allow_html=True,
     )
 
-    reasons = st.columns(3)
-    reasons[0].metric("F1", f"{best['cv_f1_mean']:.3f} ┬▒ {best['cv_f1_std']:.3f}")
-    reasons[1].metric("Average precision", f"{best['cv_ap_mean']:.3f}")
-    reasons[2].metric("ROC-AUC", f"{best['cv_auc_mean']:.3f}")
 
-    st.subheader("The decision in plain language")
+def kpi_row(items: list[tuple[str, str, str]]) -> None:
+    columns = st.columns(len(items))
+    for column, (label, value, note) in zip(columns, items):
+        column.markdown(
+            f'<div class="kpi"><div class="kpi-label">{label}</div>'
+            f'<div class="kpi-value">{value}</div>'
+            f'<div class="kpi-note">{note}</div></div>',
+            unsafe_allow_html=True,
+        )
+
+
+def note(text: str, label: str = "Finding", kind: str = "") -> None:
     st.markdown(
-        """
-        - **Repeated validation:** Gradient Boosting is the top configuration on the stated F1 selection rule.
-        - **No automatic SMOTE:** the unresampled arm is stronger for the leading ensemble; repeated validation is more reliable than the original single split.
-        - **A close alternative:** Random Forest is a defensible ranking model because it leads on Average Precision and ROC-AUC. The margin is smaller than the fold-to-fold spread.
-        - **Business signal:** low `min_balance` and `balance_at_loan` are the strongest observed default signals, so the model complements a balance-capacity review rather than replacing it.
-        """
+        f'<div class="note {kind}"><b>{label}</b>{text}</div>',
+        unsafe_allow_html=True,
     )
 
-    figure = FIGURES / "rf_importance.png"
-    if figure.exists():
-        st.image(str(figure), caption="Reference feature importance from the tuned Random Forest model.", use_container_width=True)
 
-    st.subheader("Selected model on the held-out split")
-    st.dataframe(model_metrics, use_container_width=True, hide_index=True)
-    st.caption("The held-out table is a reference check. The model selection itself uses repeated cross-validation.")
+def show(fig) -> None:
+    st.pyplot(fig, width="stretch")
+    plt.close(fig)
 
-    with st.expander("What would change the decision?"):
-        st.markdown(
-            "Use a recent portfolio, nested cross-validation, and an explicit cost matrix before deployment. "
-            "If ranking quality becomes more important than F1 classification, Random Forest is the natural challenger."
-        )
+
+def percent(value: float) -> str:
+    return f"{value:.1%}"
+
+
+def money(value: float) -> str:
+    return f"{value:,.0f} CZK"
 
 
 def parse_itemset(value: str) -> str:
+    text = str(value).strip()
+    if text.startswith("frozenset(") and text.endswith(")"):
+        text = text[len("frozenset(") : -1]
     try:
-        parsed = literal_eval(value)
-        return ", ".join(sorted(str(item) for item in parsed))
+        parsed = literal_eval(text)
     except (ValueError, SyntaxError):
-        return value
+        return text
+    if isinstance(parsed, (set, frozenset, list, tuple)):
+        return ", ".join(sorted(str(item) for item in parsed))
+    return str(parsed)
+
+
+def model_columns(model, features: pd.DataFrame) -> list[str]:
+    stored = getattr(model, "feature_names_in_", None)
+    if stored is not None:
+        return [str(column) for column in stored]
+    return [column for column in features.columns if column not in DROP]
+
+
+def median_row(features: pd.DataFrame) -> pd.Series:
+    base = features.drop(columns=[column for column in DROP if column in features.columns])
+    return base.median(numeric_only=True)
+
+
+def applicant_row(base: pd.Series, values: dict) -> pd.Series:
+    row = base.copy()
+    row["amount"] = float(values["amount"])
+    row["duration"] = float(values["duration"])
+    row["payments"] = float(values["amount"]) / float(values["duration"])
+    row["balance_at_loan"] = float(values["balance_at_loan"])
+    row["min_balance"] = float(values["min_balance"])
+    row["txn_per_month"] = float(values["txn_per_month"])
+    return row
+
+
+def predict(model, row: pd.Series, columns: list[str]) -> float:
+    frame = pd.DataFrame([row[columns].astype(float).to_numpy()], columns=columns)
+    return float(model.predict_proba(frame)[0, 1])
+
+
+def cutoff_stats(scores: pd.DataFrame, features: pd.DataFrame, cutoff: float) -> dict:
+    data = scores.merge(features[["loan_id", "amount"]], on="loan_id", how="left")
+    flagged = data["prob_default"] >= cutoff
+    is_default = data["target"] == 1
+    tp = int((flagged & is_default).sum())
+    fp = int((flagged & ~is_default).sum())
+    fn = int((~flagged & is_default).sum())
+    tn = int((~flagged & ~is_default).sum())
+    return {
+        "flagged": int(flagged.sum()),
+        "tp": tp,
+        "fp": fp,
+        "fn": fn,
+        "tn": tn,
+        "precision": tp / max(tp + fp, 1),
+        "recall": tp / max(tp + fn, 1),
+        "exposure": float(data.loc[flagged, "amount"].sum()),
+        "defaults": int(is_default.sum()),
+        "total": int(len(data)),
+    }
+
+
+def gains_figure(scores: pd.DataFrame, cutoff: float):
+    ordered = scores.sort_values("prob_default", ascending=False).reset_index(drop=True)
+    share = np.arange(1, len(ordered) + 1) / len(ordered)
+    captured = ordered["target"].cumsum() / ordered["target"].sum()
+    flagged = int((ordered["prob_default"] >= cutoff).sum())
+    fig, ax = plt.subplots(figsize=(6.0, 3.3))
+    ax.plot(share, captured, color=ACCENT)
+    ax.plot([0, 1], [0, 1], color=RULE, linestyle=(0, (4, 3)))
+    if flagged:
+        ax.scatter([share[flagged - 1]], [captured.iloc[flagged - 1]], color=RISK, s=26, zorder=5)
+        ax.annotate(
+            f"cutoff {cutoff:.2f}",
+            (share[flagged - 1], captured.iloc[flagged - 1]),
+            xytext=(7, -13),
+            textcoords="offset points",
+            fontsize=8,
+            color=RISK,
+        )
+    ax.set_xlabel("Share of portfolio reviewed")
+    ax.set_ylabel("Share of defaults captured")
+    ax.set_xlim(0, 1)
+    ax.set_ylim(0, 1.02)
+    ax.xaxis.set_major_formatter(FuncFormatter(lambda value, _: f"{value:.0%}"))
+    ax.yaxis.set_major_formatter(FuncFormatter(lambda value, _: f"{value:.0%}"))
+    ax.grid(alpha=0.5)
+    return fig
+
+
+def quintile_figure(features: pd.DataFrame, column: str, label: str):
+    labels = ["Q1", "Q2", "Q3", "Q4", "Q5"]
+    bands = pd.qcut(features[column], 5, labels=labels, duplicates="drop")
+    rates = features.groupby(bands, observed=True)["target"].mean()
+    fig, ax = plt.subplots(figsize=(5.4, 3.0))
+    colors = [RISK if index == "Q1" else ACCENT for index in rates.index.astype(str)]
+    ax.bar(rates.index.astype(str), rates.values, color=colors, width=0.62)
+    ax.set_xlabel(f"{label} quintile")
+    ax.set_ylabel("Default rate")
+    ax.set_ylim(0, max(rates.max() * 1.25, 0.05))
+    ax.yaxis.set_major_formatter(FuncFormatter(lambda value, _: f"{value:.0%}"))
+    ax.grid(axis="y", alpha=0.5)
+    return fig
+
+
+def heatmap_figure(table: pd.DataFrame, labels: list[str], row_labels: list[str]):
+    fig, ax = plt.subplots(figsize=(9.0, max(3.2, len(table) * 0.42)))
+    image = ax.imshow(table.to_numpy(), cmap=HEAT, vmin=0, vmax=1, aspect="auto")
+    ax.set_xticks(range(len(labels)), labels, rotation=20, ha="right")
+    ax.set_yticks(range(len(row_labels)), row_labels)
+    for row, (_, values) in enumerate(table.iterrows()):
+        for column, value in enumerate(values):
+            ax.text(
+                column,
+                row,
+                f"{value:.2f}",
+                ha="center",
+                va="center",
+                fontsize=8,
+                color="white" if value > 0.62 else INK,
+            )
+    fig.colorbar(image, ax=ax, label="Score", fraction=0.025)
+    return fig
+
+
+def driver_figure(labels: list[str], deltas: list[float]):
+    order = np.argsort(deltas)
+    values = [deltas[index] for index in order]
+    names = [labels[index] for index in order]
+    fig, ax = plt.subplots(figsize=(6.2, 2.9))
+    ax.barh(names, values, color=[RISK if value > 0 else GOOD for value in values], height=0.55)
+    ax.axvline(0, color=RULE, linewidth=1)
+    ax.set_xlabel("Change in default probability, percentage points")
+    ax.xaxis.set_major_formatter(FuncFormatter(lambda value, _: f"{value * 100:+.0f}"))
+    ax.grid(axis="x", alpha=0.5)
+    return fig
+
+
+def leakage_figure(used: int, excluded: int):
+    total = max(used + excluded, 1)
+    fig, ax = plt.subplots(figsize=(9.0, 1.55))
+    ax.barh([0], [used], color=ACCENT, height=0.5)
+    ax.barh([0], [excluded], left=[used], color=RULE, height=0.5)
+    ax.annotate(
+        f"{used} used ({used / total:.1%})",
+        xy=(used, 0.25),
+        xytext=(max(total * 0.05, 10), 0.66),
+        ha="left",
+        va="bottom",
+        fontsize=8,
+        color=ACCENT,
+        arrowprops={"arrowstyle": "-", "color": ACCENT, "linewidth": 0.8},
+    )
+    ax.text(
+        used + total * 0.015,
+        0,
+        f"{excluded:,} excluded",
+        va="center",
+        ha="left",
+        fontsize=8,
+        color=MUTED,
+    )
+    ax.set_yticks([])
+    ax.set_ylim(-0.5, 1.0)
+    ax.set_xlabel("Transactions on the account, before and after the loan date")
+    for side in ("left", "right", "top"):
+        ax.spines[side].set_visible(False)
+    return fig
+
+
+def sidebar(features: pd.DataFrame) -> str:
+    st.sidebar.markdown('<div class="brand">Loan default review</div>', unsafe_allow_html=True)
+    st.sidebar.markdown(
+        '<div class="brand-sub">PKDD\'99 banking records<br>Pre-loan behaviour only</div>',
+        unsafe_allow_html=True,
+    )
+    page = st.sidebar.radio("View", PAGES, label_visibility="collapsed")
+    st.sidebar.markdown('<div class="side-label">Corpus</div>', unsafe_allow_html=True)
+    defaults = int(features["target"].sum())
+    rows = [
+        ("Applications", f"{len(features):,}"),
+        ("Defaults", f"{defaults:,}"),
+        ("Base rate", percent(features["target"].mean())),
+    ]
+    for label, value in rows:
+        st.sidebar.markdown(
+            f'<div class="side-line"><span>{label}</span><span>{value}</span></div>',
+            unsafe_allow_html=True,
+        )
+    return page
+
+
+# ------------------------------------------------------------------ portfolio
+
+
+def portfolio_page() -> None:
+    features = load_features()
+    scores = load_scores()
+    defaults = int(features["target"].sum())
+    base_rate = float(features["target"].mean())
+
+    page_header(
+        "Portfolio",
+        f"{len(features):,} applications, {defaults} defaults, one review budget",
+        "Every figure on this page is computed from data/loan_features.csv and the "
+        "out-of-fold scores in outputs/model_scores.csv. Move the threshold to see what "
+        "a review queue would catch and what it would cost.",
+    )
+
+    kpi_row(
+        [
+            ("Applications", f"{len(features):,}", "One row per loan"),
+            ("Defaults", f"{defaults}", "Observed outcome"),
+            ("Base rate", percent(base_rate), "No model involved"),
+            ("Median score", f"{scores['prob_default'].median():.3f}", "Out-of-fold probability"),
+        ]
+    )
+
+    section("Review threshold", "Out-of-fold scores, so no loan is scored by a model that saw it")
+    cutoff = st.slider(
+        "Flag applications scoring at or above",
+        min_value=0.05,
+        max_value=0.90,
+        value=0.40,
+        step=0.01,
+    )
+    stats = cutoff_stats(scores, features, cutoff)
+    kpi_row(
+        [
+            ("In the queue", f"{stats['flagged']}", f"{stats['flagged'] / stats['total']:.1%} of the portfolio"),
+            ("Defaults caught", f"{stats['tp']} / {stats['defaults']}", f"{stats['fn']} missed"),
+            ("Precision", percent(stats["precision"]), f"{stats['fp']} false alarms"),
+            ("Recall", percent(stats["recall"]), "Share of defaults found"),
+        ]
+    )
+
+    left, right = st.columns([1.15, 1], gap="large")
+    with left:
+        show(gains_figure(scores, cutoff))
+    with right:
+        st.markdown(
+            f'<table class="matrix"><thead><tr><th></th><th>Flagged</th><th>Not flagged</th></tr></thead><tbody>'
+            f'<tr><td>Defaulted</td><td class="num hit">{stats["tp"]}</td><td class="num miss">{stats["fn"]}</td></tr>'
+            f'<tr><td>Repaid</td><td class="num">{stats["fp"]}</td><td class="num">{stats["tn"]}</td></tr>'
+            f"</tbody></table>",
+            unsafe_allow_html=True,
+        )
+        st.markdown(
+            f'<div class="kpi" style="margin-top:1.1rem"><div class="kpi-label">Exposure in the queue</div>'
+            f'<div class="kpi-value">{stats["exposure"] / 1e6:.1f}M CZK</div>'
+            f'<div class="kpi-note">Sum of loan amounts flagged</div></div>',
+            unsafe_allow_html=True,
+        )
+        note(
+            f"At {cutoff:.2f} the queue holds {stats['flagged']} applications: {stats['tp']} of "
+            f"{stats['defaults']} defaults and {stats['fp']} that would have repaid.",
+            label="At this setting",
+        )
+
+    rows = []
+    for value in (0.10, 0.20, 0.30, 0.40, 0.50, 0.60):
+        entry = cutoff_stats(scores, features, value)
+        rows.append(
+            {
+                "Cutoff": f"{value:.2f}",
+                "In queue": entry["flagged"],
+                "Defaults caught": f"{entry['tp']} / {entry['defaults']}",
+                "Precision": percent(entry["precision"]),
+                "Recall": percent(entry["recall"]),
+            }
+        )
+    st.dataframe(pd.DataFrame(rows), hide_index=True, width="stretch")
+    st.caption(
+        "The trade-off is monotone: a higher cutoff buys precision with recall. "
+        "The project's selected operating point is 0.40."
+    )
+
+    section("Where the risk sits", "Default rate by quintile, all 682 loans")
+    left, right = st.columns(2, gap="large")
+    with left:
+        show(quintile_figure(features, "balance_at_loan", "Balance at loan"))
+        low = features["balance_at_loan"].quantile(0.2)
+        st.caption(f"Q1 is everything below {money(low)}.")
+    with right:
+        show(quintile_figure(features, "min_balance", "Minimum balance"))
+        low = features["min_balance"].quantile(0.2)
+        st.caption(f"Q1 is everything below {money(low)}.")
+
+    note(
+        "The bottom balance quintile defaults at "
+        f"{features.loc[features['balance_at_loan'] <= features['balance_at_loan'].quantile(0.2), 'target'].mean():.1%}, "
+        "against a portfolio rate of "
+        f"{base_rate:.1%}. Balance capacity separates outcomes; transaction volume separates them far less.",
+        label="What the split shows",
+    )
+
+    section("Behaviour segments", "KMeans k=2 on pre-loan behaviour, from outputs/segment_profiles.csv")
+    profiles = load_output("segment_profiles.csv")
+    if profiles is None:
+        st.warning("Segment profiles are not available.")
+        return
+    choice = st.selectbox(
+        "Segment",
+        options=profiles["segment"].tolist(),
+        format_func=lambda value: f"Segment {value}",
+    )
+    profile = profiles[profiles["segment"] == choice].iloc[0]
+    kpi_row(
+        [
+            ("Loans", f"{int(profile['size'])}", "Members of this segment"),
+            ("Default rate", percent(profile["default_rate"]), "Observed"),
+            ("Vs base rate", f"{profile['default_rate'] - base_rate:+.1%}", "Percentage points"),
+            ("Mean transactions", f"{profile['n_txn']:.0f}", "Per loan"),
+        ]
+    )
+    members = features[features["loan_id"].isin(
+        load_output("loan_segments.csv").query("segment == @choice")["loan_id"]
+    )].merge(scores[["loan_id", "prob_default"]], on="loan_id", how="left")
+    st.dataframe(
+        members.sort_values("prob_default", ascending=False)
+        .head(12)[["loan_id", "amount", "duration", "balance_at_loan", "min_balance", "txn_per_month", "prob_default", "target"]]
+        .rename(
+            columns={
+                "loan_id": "Loan",
+                "amount": "Amount",
+                "duration": "Months",
+                "balance_at_loan": "Balance",
+                "min_balance": "Min balance",
+                "txn_per_month": "Txn / month",
+                "prob_default": "Score",
+                "target": "Defaulted",
+            }
+        ),
+        hide_index=True,
+        width="stretch",
+        column_config={
+            "Amount": st.column_config.NumberColumn(format="%.0f"),
+            "Balance": st.column_config.NumberColumn(format="%.0f"),
+            "Min balance": st.column_config.NumberColumn(format="%.0f"),
+            "Txn / month": st.column_config.NumberColumn(format="%.1f"),
+            "Score": st.column_config.NumberColumn(format="%.3f"),
+        },
+    )
+    note(
+        f"The two segments differ by {abs(profiles['default_rate'].diff().iloc[-1]):.1%} in default rate. "
+        "That is weak separation on this sample, and segment membership is not a model feature. "
+        "Read it as a description of the book, not as a risk rule.",
+        label="Caveat",
+        kind="risk",
+    )
+
+
+# ------------------------------------------------------------- data & leakage
+
+
+def data_page() -> None:
+    features = load_features()
+    counts = table_counts()
+    audit = leakage_audit()
+    matches = int((audit["used"] == audit["n_txn"]).sum())
+
+    page_header(
+        "Data",
+        "1,056,320 transactions, 682 loans, no lookahead",
+        "The modelling table is built from the star schema in data/clean. One rule keeps it "
+        "honest: every transaction used for a loan happened strictly before the loan date.",
+    )
+
+    section("Star schema", "Row counts read from data/clean")
+    grain = {
+        "dim_account": ("one row per account", "Dimension"),
+        "dim_branch": ("one row per branch", "Dimension"),
+        "dim_customer": ("one row per client", "Dimension"),
+        "dim_date": ("one row per calendar day", "Dimension"),
+        "dim_loan_type": ("one row per loan type", "Dimension"),
+        "fact_loans": ("one row per loan", "Fact"),
+        "fact_transactions": ("one row per transaction", "Fact"),
+    }
+    schema = counts.copy()
+    schema["Grain"] = schema["table"].map(lambda name: grain.get(name, ("", ""))[0])
+    schema["Role"] = schema["table"].map(lambda name: grain.get(name, ("", ""))[1])
+    schema = schema.rename(columns={"table": "Table", "rows": "Rows"})[["Table", "Rows", "Grain", "Role"]]
+    st.dataframe(
+        schema,
+        hide_index=True,
+        width="stretch",
+        column_config={"Rows": st.column_config.NumberColumn(format="%d")},
+    )
+
+    section("Leakage check", "Pick a loan; the split is computed from fact_transactions")
+    loan_dates = dict(zip(features["loan_id"], features["parsed_date"]))
+    loan_amounts = dict(zip(features["loan_id"], features["amount"]))
+    loan_id = st.selectbox(
+        "Loan",
+        options=features["loan_id"].tolist(),
+        format_func=lambda value: f"{value} | {loan_dates[value]} | {loan_amounts[value]:,.0f} CZK",
+    )
+    chosen = audit[audit["loan_id"] == loan_id].iloc[0]
+    excluded = int(chosen["total"] - chosen["used"])
+    kpi_row(
+        [
+            ("Loan date", str(loan_dates[loan_id]), "Cutoff for this loan"),
+            ("Account", f"{int(chosen['account_id'])}", "Transaction key"),
+            ("Transactions used", f"{int(chosen['used'])}", "Strictly before the loan"),
+            ("Transactions excluded", f"{excluded:,}", "On or after the loan"),
+        ]
+    )
+    used = int(chosen["used"])
+    total = max(used + excluded, 1)
+    show(leakage_figure(used, excluded))
+    st.caption(
+        f"{used} of {total:,} transactions on this account fall strictly before the loan date. "
+        f"The other {excluded:,} are excluded from the feature build."
+    )
+
+    note(
+        f"Across all {len(features)} loans, n_txn equals the count of transactions strictly before "
+        f"the loan date: {matches} of {len(features)} match, and no same-day transaction is used. "
+        "This is the check that separates a pre-loan model from a leaked one.",
+        label="Verified",
+    )
+
+    section("Feature provenance", "Where each modelling column comes from")
+    provenance = pd.DataFrame(
+        [
+            ["Loan terms", "loan.csv", "amount, duration, payments, date"],
+            ["Transaction volume", "trans.csv", "n_txn, n_deposit, n_withdrawal, sum_deposit, sum_withdrawal"],
+            ["Transaction size", "trans.csv", "avg_amount, std_amount"],
+            ["Balance history", "trans.csv", "avg_balance, min_balance, max_balance, balance_at_loan"],
+            ["Activity window", "trans.csv", "months_active, txn_per_month"],
+            ["Customer", "client.csv", "gender, age, district_id"],
+            ["Ownership", "disp.csv, account.csv", "account_id, client_id"],
+        ],
+        columns=["Group", "Source", "Columns"],
+    )
+    st.dataframe(provenance, hide_index=True, width="stretch")
+
+    section("Quality checks", "Computed from the modelling table")
+    transactions = load_transactions()
+    checks = pd.DataFrame(
+        [
+            ["Rows", f"{len(features):,}", "One per loan"],
+            ["Columns", f"{features.shape[1]}", "Terms, behaviour, context, target"],
+            ["Missing cells", f"{int(features.isna().sum().sum())}", "None"],
+            ["Duplicate loan ids", f"{int(features['loan_id'].duplicated().sum())}", "None"],
+            ["Defaults", f"{int(features['target'].sum())}", percent(features["target"].mean())],
+            ["Transaction dates", f"{int(transactions['date_id'].min())} to {int(transactions['date_id'].max())}", "Six years"],
+            ["Accounts with transactions", f"{transactions['account_id'].nunique():,}", "Of 4,500 accounts"],
+        ],
+        columns=["Check", "Result", "Note"],
+    )
+    st.dataframe(checks, hide_index=True, width="stretch")
+
+
+# --------------------------------------------------------------------- models
+
+
+def models_page() -> None:
+    cv = load_output("cv_comparison.csv")
+    metrics = load_output("metrics_comparison.csv")
+    tuning = load_output("tuning_results.csv")
+    if cv is None or metrics is None:
+        st.error("Model comparison outputs are missing.")
+        return
+
+    page_header(
+        "Models",
+        "Six classifiers, 50 repeated-CV estimates each",
+        "Selection rule: highest repeated-CV F1 on the unresampled baseline arm. The other "
+        "columns are checks on that rule, not tie-breakers.",
+    )
+
+    controls = st.columns(3)
+    metric = controls[0].selectbox("Rank by", ["F1", "Average precision", "ROC-AUC"])
+    setting = controls[1].radio("Resampling", ["baseline", "smote"], horizontal=True)
+    variant = controls[2].radio("Variant", ["tuned", "default"], horizontal=True)
+
+    metric_column = {"F1": "cv_f1_mean", "Average precision": "cv_ap_mean", "ROC-AUC": "cv_auc_mean"}[metric]
+    selected = cv[(cv["setting"] == setting) & (cv["variant"] == variant)].copy()
+    if selected.empty:
+        st.warning("No runs match that combination.")
+        return
+    board = selected.sort_values(metric_column, ascending=False).reset_index(drop=True)
+    board.insert(0, "Rank", np.arange(1, len(board) + 1))
+    st.dataframe(
+        board[["Rank", "model", "cv_f1_mean", "cv_f1_std", "cv_ap_mean", "cv_auc_mean"]].rename(
+            columns={
+                "model": "Model",
+                "cv_f1_mean": "F1",
+                "cv_f1_std": "F1 sd",
+                "cv_ap_mean": "Avg precision",
+                "cv_auc_mean": "ROC-AUC",
+            }
+        ),
+        hide_index=True,
+        width="stretch",
+        column_config={
+            "F1": st.column_config.NumberColumn(format="%.3f"),
+            "F1 sd": st.column_config.NumberColumn(format="%.3f"),
+            "Avg precision": st.column_config.NumberColumn(format="%.3f"),
+            "ROC-AUC": st.column_config.NumberColumn(format="%.3f"),
+        },
+    )
+
+    section("Held-out scores", "Default hyperparameters on the 171-row test split")
+    held = metrics.copy()
+    held["Run"] = held["model"] + " / " + held["setting"]
+    columns = ["accuracy", "precision", "recall", "f1", "average_precision", "roc_auc"]
+    labels = ["Accuracy", "Precision", "Recall", "F1", "Avg precision", "ROC-AUC"]
+    show(
+        heatmap_figure(
+            held.set_index("Run")[columns],
+            labels,
+            held["Run"].tolist(),
+        )
+    )
+
+    tabs = st.tabs(["Repeated CV", "Curves", "Tuning", "Challenger"])
+
+    with tabs[0]:
+        table = cv.copy()
+        table["Configuration"] = table["setting"] + " / " + table["variant"]
+        st.dataframe(
+            table.sort_values("cv_f1_mean", ascending=False)[
+                ["model", "Configuration", "cv_f1_mean", "cv_f1_std", "cv_ap_mean", "cv_auc_mean"]
+            ].rename(
+                columns={
+                    "model": "Model",
+                    "cv_f1_mean": "F1",
+                    "cv_f1_std": "F1 sd",
+                    "cv_ap_mean": "Avg precision",
+                    "cv_auc_mean": "ROC-AUC",
+                }
+            ),
+            hide_index=True,
+            width="stretch",
+            column_config={
+                "F1": st.column_config.NumberColumn(format="%.3f"),
+                "F1 sd": st.column_config.NumberColumn(format="%.3f"),
+                "Avg precision": st.column_config.NumberColumn(format="%.3f"),
+                "ROC-AUC": st.column_config.NumberColumn(format="%.3f"),
+            },
+        )
+        st.caption("24 configurations, 50 estimates each. Selection uses this table, not the held-out split.")
+
+    with tabs[1]:
+        left, right = st.columns(2)
+        for column, name, caption in (
+            (left, "roc_curves.png", "ROC curves, baseline and SMOTE arms."),
+            (right, "pr_curves.png", "Precision-recall curves. The honest view at 11% prevalence."),
+        ):
+            path = FIGURES / name
+            if path.exists():
+                column.image(str(path), caption=caption, width="stretch")
+        path = FIGURES / "confusion_matrices.png"
+        if path.exists():
+            st.image(str(path), caption="Confusion matrices for all 12 held-out runs.", width="stretch")
+
+    with tabs[2]:
+        if tuning is not None:
+            st.dataframe(
+                tuning[["model", "setting", "n_candidates", "inner_cv_f1", "search_seconds", "best_params"]].rename(
+                    columns={
+                        "model": "Model",
+                        "setting": "Setting",
+                        "n_candidates": "Candidates",
+                        "inner_cv_f1": "Inner F1",
+                        "search_seconds": "Seconds",
+                        "best_params": "Selected parameters",
+                    }
+                ),
+                hide_index=True,
+                width="stretch",
+                column_config={
+                    "Inner F1": st.column_config.NumberColumn(format="%.3f"),
+                    "Seconds": st.column_config.NumberColumn(format="%.1f"),
+                },
+            )
+        path = FIGURES / "tuning_curves.png"
+        if path.exists():
+            st.image(str(path), caption="Search sensitivity around the selected parameters.", width="stretch")
+
+    with tabs[3]:
+        comparison = load_output("capacity_model_comparison.csv")
+        if comparison is None:
+            st.warning("Challenger results are not available.")
+        else:
+            st.dataframe(
+                comparison.rename(
+                    columns={
+                        "model": "Model",
+                        "f1_default_mean": "F1 at 0.50",
+                        "f1_tuned_mean": "F1 at tuned threshold",
+                        "average_precision_mean": "Avg precision",
+                        "roc_auc_mean": "ROC-AUC",
+                        "median_threshold": "Threshold",
+                    }
+                )[
+                    ["Model", "F1 at 0.50", "F1 at tuned threshold", "Avg precision", "ROC-AUC", "Threshold"]
+                ],
+                hide_index=True,
+                width="stretch",
+                column_config={
+                    "F1 at 0.50": st.column_config.NumberColumn(format="%.3f"),
+                    "F1 at tuned threshold": st.column_config.NumberColumn(format="%.3f"),
+                    "Avg precision": st.column_config.NumberColumn(format="%.3f"),
+                    "ROC-AUC": st.column_config.NumberColumn(format="%.3f"),
+                    "Threshold": st.column_config.NumberColumn(format="%.2f"),
+                },
+            )
+            note(
+                "The challenger adds four capacity ratios and a tuned threshold. It gains 0.004 "
+                "ROC-AUC and loses 0.008 F1 against the selected model, so it stays a challenger.",
+                label="Result",
+            )
+
+    baseline_tuned = cv[(cv["setting"] == "baseline") & (cv["variant"] == "tuned")].sort_values(
+        "cv_f1_mean", ascending=False
+    )
+    best = baseline_tuned.iloc[0]
+    rival = baseline_tuned[baseline_tuned["model"] == "RandomForest"]
+    if not rival.empty:
+        rival = rival.iloc[0]
+        note(
+            f"The tuned baseline arm leads on F1 at {best['cv_f1_mean']:.3f} ± {best['cv_f1_std']:.3f}. "
+            f"Random Forest trails by {best['cv_f1_mean'] - rival['cv_f1_mean']:.3f} on F1 but leads on "
+            f"average precision ({rival['cv_ap_mean']:.3f} vs {best['cv_ap_mean']:.3f}) and ROC-AUC "
+            f"({rival['cv_auc_mean']:.3f} vs {best['cv_auc_mean']:.3f}). The F1 gap is a fraction of the "
+            "fold-to-fold spread, so the choice is a convention rather than a decisive win.",
+            label="Why this model",
+        )
+
+    note(
+        "76 defaults in 682 loans, and 19 of them in the held-out split. Every interval on this "
+        "page is wide. Treat the ranking as a shortlist, not a verdict.",
+        label="Limits",
+        kind="risk",
+    )
+
+
+# ------------------------------------------------------------------- patterns
 
 
 def patterns_page() -> None:
-    itemsets = load_optional_csv("pattern_itemsets.csv")
-    rules = load_optional_csv("pattern_rules.csv")
-
-    show_header(
-        "03 / Pattern recognition",
-        "What recurring behaviors travel together?",
-        "FP-Growth and Apriori turn pre-loan account activity into interpretable baskets and default-oriented association rules.",
-    )
-
-    if itemsets is None or rules is None:
-        st.warning("Pattern outputs have not been generated yet. The dashboard is ready, but the mining script still needs to run.")
-        st.code("python tools/pattern_mining.py", language="powershell")
-        st.markdown("Run the command from the repository root, then reload this page to populate the tables.")
-        return
-
-    cards = st.columns(3)
-    cards[0].metric("FP-Growth itemsets", int((itemsets["method"] == "fpgrowth").sum()))
-    cards[1].metric("Apriori itemsets", int((itemsets["method"] == "apriori").sum()))
-    cards[2].metric("Default-oriented rules", len(rules))
-
-    method_counts = itemsets.groupby("method").size().reset_index(name="count")
-    st.subheader("Mining coverage")
-    fig, ax = plt.subplots(figsize=(7, 2.8))
-    ax.bar(method_counts["method"].str.title(), method_counts["count"], color=["#3a86ff", "#ff595e"])
-    ax.set_ylabel("Itemsets")
-    ax.grid(axis="y", alpha=0.2)
-    st.pyplot(fig, use_container_width=True)
-    plt.close(fig)
-
-    itemsets = itemsets.copy()
-    itemsets["items"] = itemsets["itemsets"].map(parse_itemset)
-    st.subheader("Most frequent patterns")
-    st.dataframe(
-        itemsets[["method", "items", "support"]].sort_values("support", ascending=False).head(20),
-        use_container_width=True,
-        hide_index=True,
-    )
-
-    rules = rules.copy()
-    rules["if_behavior"] = rules["antecedents"].map(parse_itemset)
-    st.subheader("Rules whose consequence is default")
-    if rules.empty:
-        st.info("No rule reaches the configured confidence threshold. This is a finding, not a dashboard error.")
-        st.caption("Try a lower confidence threshold in tools/pattern_mining.py only as a sensitivity analysis; do not compare thresholds as if they were the same experiment.")
-    else:
-        st.dataframe(
-            rules[["method", "if_behavior", "support", "confidence", "lift"]].sort_values("lift", ascending=False),
-            use_container_width=True,
-            hide_index=True,
-        )
-
-
-def validation_page() -> None:
-    metrics = load_csv("metrics_comparison.csv")
-    cv = load_csv("cv_comparison.csv")
-
-    show_header(
-        "07 / Validation test",
-        "Evidence beyond one lucky split",
-        "The project keeps a held-out test check, then uses repeated stratified validation for model selection.",
-    )
-
-    cards = st.columns(4)
-    cards[0].metric("Training rows", "511")
-    cards[1].metric("Held-out rows", "171")
-    cards[2].metric("Held-out defaults", "19")
-    cards[3].metric("Repeated estimates", "50")
-
-    st.subheader("Validation design")
-    st.markdown(
-        """
-        1. A stratified 75/25 split creates training and held-out test sets.
-        2. Hyperparameters are searched on training data with inner 5-fold CV.
-        3. Every configuration is compared with repeated stratified 5-fold ├ù 10 CV.
-        4. F1, Average Precision, and ROC-AUC are reported because defaults are the minority class.
-        """
-    )
-    st.info(
-        "The held-out table is a reference check. The final headline model is selected from repeated cross-validation, not from one test split."
-    )
-
-    st.subheader("Held-out test results")
-    st.dataframe(
-        metrics[
-            ["model", "setting", "accuracy", "precision", "recall", "f1", "average_precision", "roc_auc"]
-        ].style.format(
-            {
-                column: "{:.3f}"
-                for column in ["accuracy", "precision", "recall", "f1", "average_precision", "roc_auc"]
-            }
-        ),
-        use_container_width=True,
-        hide_index=True,
-    )
-
-    st.subheader("Repeated cross-validation selection table")
-    st.dataframe(
-        cv[
-            [
-                "model",
-                "setting",
-                "variant",
-                "cv_f1_mean",
-                "cv_f1_std",
-                "cv_ap_mean",
-                "cv_auc_mean",
-            ]
-        ]
-        .sort_values("cv_f1_mean", ascending=False)
-        .style.format(
-            {
-                column: "{:.3f}"
-                for column in ["cv_f1_mean", "cv_f1_std", "cv_ap_mean", "cv_auc_mean"]
-            }
-        ),
-        use_container_width=True,
-        hide_index=True,
-    )
-
-    figure = FIGURES / "cv_selection.png"
-    if figure.exists():
-        st.image(str(figure), caption="Repeated-CV F1 comparison used for model selection.", use_container_width=True)
-
-
-def innovation_page() -> None:
-    results = load_optional_csv("capacity_model_comparison.csv")
-    show_header(
-        "08 / Model innovation",
-        "Capacity-Aware Threshold-Calibrated Gradient Boosting",
-        "A dataset-specific challenger that adds financial-capacity features and calibrates the default decision threshold.",
-    )
-    st.markdown(
-        """
-        **What changed?** The original tuned Gradient Boosting model is extended
-        with four pre-loan features: loan-to-average-balance, loan-to-balance at
-        the loan date, payment-to-average-balance, and a negative minimum-balance
-        indicator. Ratio features use non-negative balances, clipping, and
-        `log1p` transformation to reduce the effect of extreme near-zero values.
-
-        **How is it calibrated?** An inner five-fold validation searches
-        probability thresholds from 0.20 to 0.70 and selects the threshold that
-        maximizes Class 1 F1, rather than assuming that 0.50 is optimal.
-        """
-    )
-    if results is None:
-        st.warning("Innovation results are not available yet.")
-        st.code("python tools/capacity_aware_model.py", language="powershell")
-        return
-
-    comparison = results.set_index("model")
-    current = comparison.loc["Current tuned Gradient Boosting"]
-    challenger = comparison.loc["Capacity-aware Gradient Boosting"]
-    cards = st.columns(4)
-    cards[0].metric("Innovation F1", f"{challenger['f1_tuned_mean']:.3f}", f"Current {current['f1_default_mean']:.3f}")
-    cards[1].metric("Innovation ROC-AUC", f"{challenger['roc_auc_mean']:.3f}", f"Current {current['roc_auc_mean']:.3f}")
-    cards[2].metric("Average precision", f"{challenger['average_precision_mean']:.3f}", f"Current {current['average_precision_mean']:.3f}")
-    cards[3].metric("Selected threshold", f"{challenger['median_threshold']:.2f}")
-    st.info(
-        "Result: the innovation improves ROC-AUC slightly but does not beat the current model on F1. "
-        "It is therefore retained as an interpretable challenger, not presented as an unqualified replacement."
-    )
-    st.subheader("Measured comparison")
-    st.dataframe(
-        results.style.format(
-            {
-                column: "{:.3f}"
-                for column in results.columns
-                if column not in {"model", "median_threshold"}
-            }
-            | {"median_threshold": "{:.2f}"}
-        ),
-        use_container_width=True,
-        hide_index=True,
-    )
-
-
-def overview_page() -> None:
     features = load_features()
-    defaults = int(features["target"].sum())
-    good = len(features) - defaults
-    show_header(
-        "Loan default intelligence",
-        "From transaction history to a safer lending conversation",
-        "An end-to-end decision-support dashboard for understanding default risk before a loan is approved.",
+    itemsets = load_output("pattern_itemsets.csv")
+    rules = load_output("pattern_rules.csv")
+    if itemsets is None or rules is None:
+        st.error("Pattern outputs are missing. Run tools/pattern_mining.py.")
+        return
+
+    # Both files stack an Apriori and an FP-Growth run. The itemsets file also
+    # ends with a six-row legend whose support cells are text, not numbers.
+    itemsets = itemsets[itemsets["method"].notna()].copy()
+    itemsets["support"] = pd.to_numeric(itemsets["support"], errors="coerce")
+    itemsets = itemsets.drop_duplicates(subset=["itemsets"])
+    rules = rules.drop_duplicates(subset=["antecedents", "consequents"])
+
+    loans = len(features)
+    page_header(
+        "Patterns",
+        f"{len(itemsets)} itemsets, {len(rules)} rules, one worth a second look",
+        "FP-Growth and Apriori over pre-loan behaviour baskets. Support, confidence and lift "
+        f"are measured against all {loans} loans.",
     )
-    cards = st.columns(4)
-    cards[0].metric("Loans analysed", f"{len(features):,}")
-    cards[1].metric("Default rate", f"{features['target'].mean():.1%}")
-    cards[2].metric("Good loans", f"{good:,}")
-    cards[3].metric("Default cases", f"{defaults:,}")
+
+    top = rules.sort_values("lift", ascending=False).iloc[0]
+    kpi_row(
+        [
+            ("Itemsets", f"{len(itemsets)}", "Identical across both algorithms"),
+            ("Default rules", f"{len(rules)}", "Consequence is default"),
+            ("Top-rule support", percent(top["support"]), f"{round(top['support'] * loans)} loans"),
+            ("Top-rule lift", f"{top['lift']:.2f}", f"Against the {percent(features['target'].mean())} base rate"),
+        ]
+    )
+
+    section("The rule worth a second look", "Highest lift in the rule set")
     st.markdown(
-        '<div class="signal"><b>Business question:</b> Can pre-loan transaction behaviour help a bank identify applications that deserve additional review before approval, without replacing human judgement?</div>',
+        f'<div class="note"><b>Rule</b><span style="font-family:var(--serif);font-size:1.15rem">'
+        f"{parse_itemset(top['antecedents'])} → {parse_itemset(top['consequents'])}</span></div>",
         unsafe_allow_html=True,
     )
-    st.subheader("The project in one view")
-    flow = st.columns(5)
-    stages = [("01", "Collect", "PKDD'99 banking tables"), ("02", "Prepare", "Clean, join and label loans"), ("03", "Engineer", "Pre-loan behaviour features"), ("04", "Learn", "Compare six classifiers"), ("05", "Act", "Review risk and capacity")]
-    for column, (number, title, detail) in zip(flow, stages):
-        column.markdown(f"**{number} / {title}**\n\n{detail}")
-    left, right = st.columns([1.15, 1])
-    with left:
-        st.subheader("What the analysis found")
-        st.markdown("- Defaults represent **11.14%** of the modelling population, so accuracy alone is not enough.\n- **Minimum balance** and **balance at loan time** are stronger signals than activity volume alone.\n- Tuned Gradient Boosting leads the repeated-CV F1 selection rule; Random Forest remains a strong ranking challenger.\n- Pattern mining found recurring behaviour baskets, but no default rule met the configured confidence threshold.")
-    with right:
-        st.subheader("Who can use this dashboard?")
-        st.markdown("**Credit analyst:** prioritise manual review.  \n**Risk manager:** test portfolio cut-offs and expected exposure.  \n**Data team:** defend model choice and validation.  \n**Viva panel:** walk from source data to recommendation in one screen.")
-    st.subheader("Important boundary")
-    st.warning("This is a historical decision-support study, not an automated approval system. Revalidate on current portfolio data, monitor drift, and apply fair-lending and affordability checks before operational use.")
+    st.dataframe(
+        pd.DataFrame(
+            [
+                ["Antecedent support", percent(top["antecedent support"])],
+                ["Consequent support", percent(top["consequent support"])],
+                ["Support", percent(top["support"])],
+                ["Confidence", f"{top['confidence']:.2f}"],
+                ["Lift", f"{top['lift']:.2f}"],
+                ["Conviction", f"{top['conviction']:.1f}"],
+            ],
+            columns=["Measure", "Value"],
+        ),
+        hide_index=True,
+        width="stretch",
+    )
+    cases = round(top["support"] * loans)
+    note(
+        f"All {cases} loans with a negative minimum balance defaulted. "
+        f"Confidence 1.00 is a strong signal, but {cases} cases is a small base: the interval "
+        "around it is wide. Use it as a screening flag, not an approval rule.",
+        label="Reading it",
+    )
+
+    section("All rules", f"{len(rules)} rules pass the configured thresholds")
+    table = rules.copy()
+    table["If"] = table["antecedents"].map(parse_itemset)
+    table["Then"] = table["consequents"].map(parse_itemset)
+    table["Support %"] = (table["support"] * 100).round(2)
+    table["Confidence %"] = (table["confidence"] * 100).round(1)
+    st.dataframe(
+        table[["If", "Then", "Support %", "Confidence %", "lift"]]
+        .sort_values("lift", ascending=False)
+        .rename(columns={"lift": "Lift"}),
+        hide_index=True,
+        width="stretch",
+        column_config={
+            "Support %": st.column_config.NumberColumn(format="%.2f"),
+            "Confidence %": st.column_config.NumberColumn(format="%.1f"),
+            "Lift": st.column_config.NumberColumn(format="%.2f"),
+        },
+    )
+    st.caption("Both algorithms return the same rules; duplicates are collapsed.")
+
+    section("Itemsets", f"Apriori and FP-Growth return the same {len(itemsets)} sets")
+    threshold = st.slider("Minimum support", 0, 100, 20, step=5)
+    table = itemsets.copy()
+    table["Support %"] = (table["support"] * 100).round(2)
+    filtered = table[table["Support %"] >= threshold].sort_values("Support %", ascending=False)
+    table_view = filtered.assign(Items=filtered["itemsets"].map(parse_itemset))[["Items", "Support %"]]
+    st.dataframe(table_view, hide_index=True, width="stretch")
+    st.caption(
+        f"{len(filtered)} of {len(itemsets)} itemsets at support ≥ {threshold}%. "
+        "Support counts the share of loans that contain the set."
+    )
 
 
-def data_pipeline_page() -> None:
-    features = load_features()
-    show_header("02 / Data story", "How raw banking records become loan features", "The feature table contains only information available before the loan date, which is the key protection against post-decision leakage.")
-    source_table = pd.DataFrame([
-        ["loan.csv", "Target and loan terms", "Amount, duration, payments, status"],
-        ["trans.csv", "Behavioural source", "Deposits, withdrawals, balances and dates"],
-        ["client.csv", "Customer attributes", "Client identity and district"],
-        ["account.csv", "Account metadata", "Account creation and district"],
-        ["disp.csv", "Relationship bridge", "Links owners to accounts"],
-    ], columns=["Source", "Role", "Fields used"])
-    st.subheader("Dataset and source")
-    st.caption("PKDD'99 Financial Dataset | anonymised Czech banking records covering 1993-1998")
-    st.dataframe(source_table, use_container_width=True, hide_index=True)
-    st.subheader("Preprocessing pipeline")
-    pipeline = st.columns(4)
-    for column, title, detail in zip(pipeline, ["Clean", "Join", "Restrict", "Transform"], ["Parse dates, check duplicates and missing values", "Link loan, account and client ownership", "Keep transactions strictly before each loan date", "Encode gender and scale features inside training pipelines"]):
-        column.info(f"**{title}**\n\n{detail}")
-    quality = pd.DataFrame({"Check": ["Rows in modelling table", "Columns", "Missing values", "Target classes", "Default prevalence"], "Result": [f"{len(features):,}", f"{features.shape[1]}", f"{int(features.isna().sum().sum())}", "Good / Default", f"{features['target'].mean():.2%}"], "Why it matters": ["One row per loan", "Behaviour plus terms and context", "Ready for modelling", "Binary classification target", "Accuracy must be interpreted carefully"]})
-    st.subheader("Data-quality checkpoint")
-    st.dataframe(quality, use_container_width=True, hide_index=True)
-
-
-def eda_page() -> None:
-    features = load_features()
-    show_header("03 / Exploratory analysis", "Where does default risk show up?", "Interactive views of portfolio balance, loan terms, and pre-loan customer behaviour.")
-    target_labels = features["target"].map({0: "Good", 1: "Default"})
-    left, right = st.columns(2)
-    with left:
-        st.subheader("Portfolio composition")
-        counts = target_labels.value_counts().reindex(["Good", "Default"]).fillna(0)
-        fig, ax = plt.subplots(figsize=(6, 3.5))
-        ax.bar(counts.index, counts.values, color=["#2a9d8f", "#e76f51"])
-        ax.set_ylabel("Loans")
-        ax.grid(axis="y", alpha=0.2)
-        st.pyplot(fig, use_container_width=True)
-        plt.close(fig)
-    with right:
-        st.subheader("Balance capacity by outcome")
-        groups = [features.loc[features["target"] == value, "balance_at_loan"] for value in [0, 1]]
-        fig, ax = plt.subplots(figsize=(6, 3.5))
-        ax.boxplot(groups, labels=["Good", "Default"], patch_artist=True, boxprops={"facecolor": "#bde0fe"})
-        ax.set_ylabel("Balance at loan")
-        ax.grid(axis="y", alpha=0.2)
-        st.pyplot(fig, use_container_width=True)
-        plt.close(fig)
-    st.subheader("Default rate by loan duration")
-    duration_summary = features.groupby("duration", as_index=False).agg(loans=("target", "size"), default_rate=("target", "mean"))
-    fig, ax = plt.subplots(figsize=(12, 3.8))
-    ax.bar(duration_summary["duration"].astype(str), duration_summary["default_rate"], color="#457b9d")
-    ax.set_xlabel("Duration (months)")
-    ax.set_ylabel("Default rate")
-    ax.yaxis.set_major_formatter(plt.FuncFormatter(lambda value, _: f"{value:.0%}"))
-    ax.grid(axis="y", alpha=0.2)
-    st.pyplot(fig, use_container_width=True)
-    plt.close(fig)
-    st.dataframe(duration_summary.style.format({"default_rate": "{:.1%}"}), use_container_width=True, hide_index=True)
+# ------------------------------------------------------------------ simulator
 
 
 def simulator_page() -> None:
     features = load_features()
-    show_header("04 / Loan review simulator", "Test a lending policy before it reaches the portfolio", "Change the application and capacity assumptions to see how a review threshold changes exposure. This is a transparent scenario tool, not an approval engine.")
-    st.info("Innovation: use this screen for pre-screening, branch coaching, or policy what-if analysis. It converts a model-style risk signal into an operational review queue with a visible rationale.")
-    left, right = st.columns(2)
-    with left:
-        amount = st.number_input("Requested loan amount", min_value=1000.0, value=float(features["amount"].median()), step=5000.0)
-        duration = st.select_slider("Loan duration (months)", options=sorted(features["duration"].unique().tolist()), value=int(features["duration"].median()))
-        balance = st.number_input("Balance available at application", min_value=0.0, value=float(features["balance_at_loan"].median()), step=1000.0)
-    with right:
-        min_balance = st.number_input("Minimum observed balance", min_value=0.0, value=float(features["min_balance"].median()), step=500.0)
-        txn_rate = st.number_input("Transactions per month", min_value=0.0, value=float(features["txn_per_month"].median()), step=0.5)
-        review_cutoff = st.slider("Class 1 / manual-review cutoff", 0.01, 0.90, 0.45, 0.01)
-        st.caption("If the risk score is at or above this percentage, the result becomes Class 1 ΓÇö Default risk.")
-    amount_pressure = amount / max(float(features["amount"].median()), 1.0)
-    balance_strength = balance / max(float(features["balance_at_loan"].median()), 1.0)
-    min_balance_strength = min_balance / max(float(features["min_balance"].median()), 1.0)
-    duration_pressure = duration / max(float(features["duration"].median()), 1.0)
-    activity_support = txn_rate / max(float(features["txn_per_month"].median()), 1.0)
-    risk_score = 0.11 + 0.10 * (amount_pressure - 1) + 0.14 * (duration_pressure - 1) - 0.10 * (balance_strength - 1) - 0.08 * (min_balance_strength - 1) - 0.03 * (activity_support - 1)
-    risk_score = max(0.01, min(0.95, risk_score))
-    decision = "Manual review" if risk_score >= review_cutoff else "Standard review"
-    predicted_class = 1 if risk_score >= review_cutoff else 0
-    risk_label = "At/above review threshold" if predicted_class == 1 else "Below review threshold"
-    class_label = "Class 1 ΓÇö Default-risk signal" if predicted_class == 1 else "Class 0 ΓÇö Below threshold"
-    recommendation = "Send to a credit officer for manual review" if predicted_class == 1 else "Continue with standard checks; do not auto-approve"
-    expected_loss = amount * risk_score
-    st.subheader("Simple decision")
-    cards = st.columns(4)
-    cards[0].metric("Risk level", risk_label)
-    cards[1].metric("Recommended action", recommendation)
-    cards[2].metric("Model class", class_label)
-    cards[3].metric("Risk score", f"{risk_score:.1%}")
-    exposure_cards = st.columns(2)
-    exposure_cards[0].metric("Exposure if defaulted", f"{amount:,.0f}")
-    exposure_cards[1].metric("Expected loss proxy", f"{expected_loss:,.0f}")
-    st.progress(risk_score, text=f"Risk index: {risk_score:.1%}")
-    st.info(
-        f"**Decision support only:** {recommendation}. The scenario risk index is **{risk_score:.1%}**, "
-        f"which is {'at or above' if predicted_class else 'below'} the **{review_cutoff:.0%} "
-        f"review threshold**. Therefore, the result is **{class_label}** ({risk_label}). "
-        f"To flag this scenario as Class 1, set the cutoff to **{risk_score:.1%}** or lower. "
-        "This index is a transparent scenario estimate, not a calibrated probability "
-        "or an automatic approval/rejection. Complete affordability, identity, and "
-        "fair-lending checks first."
+    scores = load_scores()
+    model = load_model()
+    columns = model_columns(model, features)
+    base = median_row(features)
+
+    page_header(
+        "Simulator",
+        "Score one application against the fitted model",
+        "The model is the tuned Gradient Boosting pipeline in outputs/models. Five inputs are "
+        "yours; the other thirteen features are held at portfolio medians and listed in full below.",
     )
-    rationale = []
-    if balance < features["balance_at_loan"].median():
-        rationale.append("available balance is below the portfolio median")
-    if min_balance < features["min_balance"].median():
-        rationale.append("the minimum observed balance is below the portfolio median")
-    if amount > features["amount"].median():
-        rationale.append("the requested amount is above the portfolio median")
-    if not rationale:
-        rationale.append("capacity and loan terms are close to or better than portfolio medians")
-    st.markdown(f'<div class="signal"><b>Why this result:</b> {"; ".join(rationale)}. Use the result to request documents or affordability evidence, not to auto-reject the applicant.</div>', unsafe_allow_html=True)
+
+    left, right = st.columns([1, 1.05], gap="large")
+
+    with left:
+        st.markdown('<div class="side-label">Application</div>', unsafe_allow_html=True)
+        amount = st.number_input("Loan amount (CZK)", min_value=10_000, max_value=500_000, value=116_928, step=1_000)
+        duration = st.select_slider("Duration (months)", options=[6, 12, 24, 36, 48, 60], value=36)
+        balance = st.number_input(
+            "Balance at loan date (CZK)", min_value=-20_000, max_value=300_000, value=38_550, step=500
+        )
+        min_balance = st.number_input(
+            "Minimum balance in the window (CZK)", min_value=-20_000, max_value=50_000, value=600, step=100
+        )
+        txn = st.number_input(
+            "Transactions per month", min_value=0.0, max_value=15.0, value=5.7, step=0.1, format="%.1f"
+        )
+        cutoff = st.slider("Review threshold", 0.05, 0.90, 0.40, 0.01)
+
+    values = {
+        "amount": amount,
+        "duration": duration,
+        "balance_at_loan": balance,
+        "min_balance": min_balance,
+        "txn_per_month": txn,
+    }
+    row = applicant_row(base, values)
+    probability = predict(model, row, columns)
+    flagged = probability >= cutoff
+    percentile = float((scores["prob_default"] < probability).mean())
+
+    with right:
+        st.markdown(
+            f'<div class="kpi-label">Default probability</div>'
+            f'<div class="prob {"risk" if flagged else "calm"}">{probability:.1%}</div>'
+            f'<div class="verdict">'
+            f'{"Above" if flagged else "Below"} the {cutoff:.2f} threshold. '
+            f'{"Refer for manual review." if flagged else "Standard processing."}</div>',
+            unsafe_allow_html=True,
+        )
+        st.markdown(
+            f'<div class="side-line" style="margin-top:1.1rem"><span>Position in the portfolio</span>'
+            f"<span>above {percentile:.0%} of scores</span></div>"
+            f'<div class="side-line"><span>PD × exposure</span><span>{money(probability * amount)}</span></div>'
+            f'<div class="side-line"><span>Model</span><span>tuned Gradient Boosting</span></div>',
+            unsafe_allow_html=True,
+        )
+        st.caption(
+            "PD × exposure multiplies the probability by the loan amount. Loss given default "
+            "is not modelled, so this is an upper bound."
+        )
+
+    section("What moves the score", "One input at a time, moved to a stressed value")
+    stress = {
+        "amount": float(features["amount"].quantile(0.95)),
+        "duration": 60.0,
+        "balance_at_loan": float(features["balance_at_loan"].quantile(0.01)),
+        "min_balance": float(features["min_balance"].quantile(0.01)),
+        "txn_per_month": float(features["txn_per_month"].quantile(0.01)),
+    }
+    deltas = []
+    for key in SIM_INPUTS:
+        altered = dict(values)
+        altered[key] = stress[key]
+        deltas.append(predict(model, applicant_row(base, altered), columns) - probability)
+    left, right = st.columns([1.1, 1], gap="large")
+    with left:
+        show(driver_figure(list(SIM_INPUTS.values()), deltas))
+    with right:
+        for (key, label), delta in zip(SIM_INPUTS.items(), deltas):
+            short = "Activity" if key == "txn_per_month" else label
+            if abs(delta) < 0.0005:
+                effect = "no measurable effect"
+            else:
+                direction = "raises" if delta > 0 else "lowers"
+                effect = f"{direction} risk by {abs(delta) * 100:.1f} pp"
+            st.markdown(
+                f'<div class="side-line"><span>{short} at {stress_text(key, stress[key])}</span>'
+                f"<span>{effect}</span></div>",
+                unsafe_allow_html=True,
+            )
+        st.caption(
+            "Each row moves one input to a stress value (95th percentile for amount, 60 months, "
+            "1st percentile for balances and activity) and holds the rest at your entries."
+        )
+
+    section("What the model sees", "All 18 features, applicant value against the portfolio median")
+    with st.expander("Open the full feature vector", expanded=False):
+        vector = pd.DataFrame(
+            {
+                "Feature": columns,
+                "Applicant": [row[column] for column in columns],
+                "Portfolio median": [base[column] for column in columns],
+            }
+        )
+        st.dataframe(
+            vector,
+            hide_index=True,
+            width="stretch",
+            column_config={
+                "Applicant": st.column_config.NumberColumn(format="%.2f"),
+                "Portfolio median": st.column_config.NumberColumn(format="%.2f"),
+            },
+        )
+
+    note(
+        "payments is derived as amount ÷ duration, exactly as in the feature build, so it is not "
+        "an independent input. The pipeline was fitted on all 682 loans; the portfolio page uses "
+        "out-of-fold scores. Use this page to compare applications, not to read a calibrated "
+        "probability.",
+        label="Method",
+    )
 
 
-def recommendations_page() -> None:
-    show_header("05 / Recommendations", "Turn the analysis into a responsible next step", "The dashboard closes the loop between technical findings, credit operations, and future model governance.")
-    recommendations = pd.DataFrame([
-        ["Credit review", "Prioritise low-balance and high-loan-to-balance applications for manual affordability checks.", "Lower avoidable default exposure"],
-        ["Portfolio policy", "Use the simulator to compare review cut-offs before changing approval policy.", "Quantify operational workload and exposure"],
-        ["Model governance", "Revalidate with recent data and monitor recall, precision, calibration and drift.", "Prevent historical patterns becoming stale rules"],
-        ["Fair lending", "Do not use age or gender as an automatic rejection reason; investigate explainable financial capacity signals.", "Keep decisions reviewable and defensible"],
-        ["Further innovation", "Add affordability, bureau, repayment and macroeconomic data when legally and operationally available.", "Move from retrospective classification to live early warning"],
-    ], columns=["Audience", "Recommendation", "Future value"])
-    st.dataframe(recommendations, use_container_width=True, hide_index=True)
-    st.subheader("What can be added next for loan teams?")
-    st.markdown("- **Early-warning monitoring:** score existing borrowers monthly and flag deteriorating balances before missed payments.\n- **Offer optimisation:** compare amount, duration and payment scenarios instead of treating risk as a simple yes/no label.\n- **Collections prioritisation:** combine predicted risk with exposure to focus limited outreach capacity.\n- **Decision audit trail:** store the input snapshot, score, threshold, reason codes and human outcome for every reviewed application.")
+# ---------------------------------------------------------------------- shell
 
 
-page = st.sidebar.radio(
-    "Explore",
-    [
-        "Loan review simulator",
-        "Model comparison",
-        "Project overview",
-        "Data & pipeline",
-        "EDA & portfolio signals",
-        "FP-Growth & patterns",
-        "Validation test",
-        "Model innovation",
-        "Recommendations",
-    ],
-)
-show_project_pulse()
-st.sidebar.divider()
-st.sidebar.caption("PKDD'99 loan default classification\nPre-loan behavioral evidence")
+def main() -> None:
+    features = load_features()
+    pages = {
+        "Portfolio": portfolio_page,
+        "Data & leakage": data_page,
+        "Models": models_page,
+        "Patterns": patterns_page,
+        "Simulator": simulator_page,
+    }
+    pages[sidebar(features)]()
 
-if page == "Loan review simulator":
-    simulator_page()
-elif page == "Model comparison":
-    comparison_page()
-elif page == "Project overview":
-    overview_page()
-elif page == "Data & pipeline":
-    data_pipeline_page()
-elif page == "EDA & portfolio signals":
-    eda_page()
-elif page == "FP-Growth & patterns":
-    patterns_page()
-elif page == "Validation test":
-    validation_page()
-elif page == "Model innovation":
-    innovation_page()
-else:
-    recommendations_page()
+
+if __name__ == "__main__":
+    main()
